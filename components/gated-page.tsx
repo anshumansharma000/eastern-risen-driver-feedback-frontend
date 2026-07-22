@@ -1,0 +1,1 @@
+import { Unavailable } from "./ui"; export function GatedPage({eyebrow,title,copy,reason}:{eyebrow:string;title:string;copy:string;reason:string}){return <main className="page"><div className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{copy}</p></div></div><Unavailable title="Backend capability required">{reason}</Unavailable></main>}

@@ -1,0 +1,1 @@
+import { GatedPage } from "@/components/gated-page"; export default function Page(){return <GatedPage eyebrow="Agency configuration" title="Settings" copy="Brand, timezone, thank-you text, and agency preferences belong here once backed by configuration APIs." reason="The agency settings endpoint is not implemented."/>}

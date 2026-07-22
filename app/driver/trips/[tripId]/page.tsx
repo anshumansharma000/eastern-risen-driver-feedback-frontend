@@ -1,0 +1,1 @@
+import { DriverTripDetail } from "@/components/driver-trip-detail"; export default async function Page({params}:{params:Promise<{tripId:string}>}){const {tripId}=await params;return <main className="page"><DriverTripDetail id={tripId}/></main>}

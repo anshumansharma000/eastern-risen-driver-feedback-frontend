@@ -1,0 +1,1 @@
+import { SyncSummary } from "@/components/sync-summary"; export default function SyncPage(){return <main className="page"><div className="page-header"><div><p className="eyebrow">This device only</p><h1>Sync status</h1><p>Only counts, age, and recovery state are visible. Passenger information and answers remain hidden.</p></div></div><SyncSummary/></main>}

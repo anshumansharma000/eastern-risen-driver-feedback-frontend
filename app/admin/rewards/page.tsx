@@ -1,0 +1,1 @@
+import { GatedPage } from "@/components/gated-page"; export default function Page(){return <GatedPage eyebrow="Server-authoritative outcomes" title="Rewards" copy="Prize eligibility, selection, inventory, and coupon assignment must happen on the server." reason="Reward campaign, prize inventory, wheel outcome, and email delivery endpoints are not implemented."/>}

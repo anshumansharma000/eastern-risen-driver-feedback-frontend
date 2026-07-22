@@ -1,0 +1,1 @@
+import { GatedPage } from "@/components/gated-page"; export default function Page(){return <GatedPage eyebrow="Immutable passenger records" title="Feedback review" copy="Authorized administrators will review individual submissions without editing their content." reason="The feedback list, detail, flag, archive, and review-history endpoints are not implemented."/>}

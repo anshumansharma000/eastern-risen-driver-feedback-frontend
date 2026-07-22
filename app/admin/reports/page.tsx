@@ -1,0 +1,1 @@
+import { GatedPage } from "@/components/gated-page"; export default function Page(){return <GatedPage eyebrow="Controlled data exports" title="Reports" copy="Exports will repeat active filters and exclude passenger phone and email by default." reason="CSV, Excel, PDF, job status, and private download endpoints are not implemented."/>}

@@ -1,0 +1,8 @@
+"use client";
+import { useEffect,useState } from "react";
+import { queueSummary,syncQueue,type QueueSummary } from "@/lib/offline-queue";
+export function SyncSummary(){const [summary,setSummary]=useState<QueueSummary|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState(false);
+  async function load(){try{setSummary(await queueSummary());setError(false)}catch{setError(true)}}useEffect(()=>{queueMicrotask(()=>void load());const online=()=>void retry();window.addEventListener("online",online);return()=>window.removeEventListener("online",online)},[]);
+  async function retry(){setBusy(true);try{setSummary(await syncQueue());setError(false)}catch{setError(true)}finally{setBusy(false)}}
+  if(error)return <div className="alert" role="alert">This browser did not allow access to its secure offline queue. Passenger feedback should not be started until storage is available.</div>;
+  return <div className="grid-3"><div className="card stat"><span>Waiting to sync</span><strong>{summary?.count??"—"}</strong><small>No response content is shown</small></div><div className="card stat"><span>Needs attention</span><strong>{summary?.needsAttention??"—"}</strong><small>{summary?.oldestAt?`Oldest item: ${new Intl.DateTimeFormat("en-IN",{dateStyle:"medium"}).format(new Date(summary.oldestAt))}`:"No pending items"}</small></div><div className="card card-pad"><h2 className="section-title">Recovery</h2><p>When online, retry safely with the original submission identifier.</p><button className="button" onClick={retry} disabled={busy||!summary?.count}>{busy?"Syncing…":"Retry now"}</button></div></div>}

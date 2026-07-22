@@ -1,0 +1,1 @@
+import type { ReactNode } from "react"; import { AppShell } from "@/components/app-shell"; export default function DriverLayout({children}:{children:ReactNode}){return <AppShell role="driver">{children}</AppShell>}
