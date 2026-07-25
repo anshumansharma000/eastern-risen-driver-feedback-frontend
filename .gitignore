@@ -42,10 +42,6 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# Keep project documentation local. This matches Markdown files recursively.
 *.md
-PRODUCT.md
-README.md
-DATA_MODEL.md
-FRONTEND_API_REFERENCE.md
-FRONTEND_REFERENCE.md
-FRONTEND_PROMPT.md
