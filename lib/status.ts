@@ -13,3 +13,10 @@ export const lifecycleStatus: Record<LifecycleStatus, { label: string; tone: str
 export function formatIndiaDate(value: string) {
   return new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
+export function formatDateTime(value: string, timeZone = "Asia/Kolkata") {
+  return new Intl.DateTimeFormat("en-IN", { timeZone, day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit", timeZoneName:"short" }).format(new Date(value));
+}
+export function formatTripRange(start: string, end: string, timeZone = "Asia/Kolkata") {
+  const formatter = new Intl.DateTimeFormat("en-IN", { timeZone, day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit", timeZoneName:"short" });
+  return formatter.formatRange(new Date(start), new Date(end));
+}

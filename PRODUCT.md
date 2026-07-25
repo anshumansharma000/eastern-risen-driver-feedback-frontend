@@ -6,7 +6,7 @@
 **Initial platform:** Responsive web application  
 **Initial audience:** One travel agency  
 **Language:** English  
-**Last updated:** 2026-07-20
+**Last updated:** 2026-07-25
 
 ## 1. Purpose of this document
 
@@ -86,7 +86,7 @@ The driver can:
 - Enter an unassigned trip manually and start its feedback flow.
 - View their own aggregate overall score and aggregate category scores.
 - Filter their aggregate results by month.
-- Request a password-reset link by email.
+- Contact an administrator to have a forgotten password reset.
 
 The driver must not be able to:
 
@@ -124,7 +124,7 @@ The administrator must not be able to edit the contents of a submitted feedback 
 2. The service validates that the driver account is active.
 3. The driver arrives at their driver home screen.
 4. The driver can select an assigned trip or create an unassigned trip.
-5. A forgotten password can be reset through an emailed reset link. An administrator can also initiate the reset.
+5. A driver who forgets their password contacts an administrator, who sets a new password directly and communicates it outside the product.
 
 ### 6.2 Admin-assigned trip
 
@@ -192,8 +192,8 @@ The administrator must not be able to edit the contents of a submitted feedback 
 - **AUTH-001 — Required:** Drivers authenticate with a unique driver ID and password.
 - **AUTH-002 — Required:** Administrators authenticate separately from drivers.
 - **AUTH-003 — Required:** Deactivated or archived users cannot sign in.
-- **AUTH-004 — Required:** Drivers can request a time-limited password-reset link by email.
-- **AUTH-005 — Required:** Administrators can initiate a driver's password reset.
+- **AUTH-004 — Required:** Drivers who forget their password are directed to contact an administrator.
+- **AUTH-005 — Required:** Administrators can directly set a new driver password, revoking all of that driver's active sessions.
 - **AUTH-006 — Required:** Passenger feedback mode must not expose authenticated driver or admin pages.
 - **AUTH-007 — Required:** Authentication and password storage must follow current security best practices; plaintext passwords must never be stored.
 - **AUTH-008 — Recommended default:** Require reauthentication or a driver-only unlock action after the passenger flow ends.

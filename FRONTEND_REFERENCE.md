@@ -3,10 +3,10 @@
 **Product:** Eastern Risen Driver Feedback Service  
 **Organization:** Eastern Risen Expedition Pvt. Ltd.  
 **Status:** Living frontend reference  
-**Last updated:** 2026-07-22  
+**Last updated:** 2026-07-25
 **Frontend stack:** Next.js, TypeScript, Tailwind CSS  
 **Initial locale:** English  
-**Display timezone:** `Asia/Kolkata`
+**Display timezone:** Server-provided agency setting (`Asia/Kolkata` default)
 
 ## 1. Purpose and authority
 
@@ -53,8 +53,6 @@ app/
   (auth)/
     admin/login/
     driver/login/
-    forgot-password/
-    reset-password/
   (driver)/driver/
     page.tsx
     trips/
@@ -87,15 +85,14 @@ app/
 - Driver navigation contains Home/Trips, Performance, Sync status, and Account/Sign out.
 - Admin navigation contains Dashboard, Feedback, Trips, Drivers, Vendors, Vehicles, Questionnaires, Rewards, Reports, and Settings. Hide or mark modules not supported by the current API; never fake persistence.
 - Preserve useful admin filters in URL search parameters.
-- Do not put feedback tokens, reset tokens, passenger data, or coupon codes into URLs unless a backend-designed single-use reset route explicitly requires a token.
+- Do not put feedback tokens, credentials, passenger data, or coupon codes into URLs.
 
 ## 5. Core screen inventory
 
 ### Authentication
 
-- Driver sign-in: driver code, password, forgot-password entry.
+- Driver sign-in: driver code, password, and guidance to contact an administrator when the password is forgotten.
 - Admin sign-in: email, password.
-- Forgot/reset password: implementation depends on backend availability; do not imply an email was sent unless confirmed.
 - Session expired, access denied, and service unavailable states.
 
 ### Driver
@@ -208,8 +205,8 @@ Centralize enum-to-label, enum-to-icon, and enum-to-tone mappings. Icons must ha
 
 ### Current base contract
 
-- Local API: `http://localhost:3000`
-- Development OpenAPI UI: `http://localhost:3000/docs`
+- Local API: `http://localhost:8080`
+- Development OpenAPI UI: `http://localhost:8080/docs`
 - Auth: opaque HttpOnly database-backed cookie, `SameSite=Lax`, secure in production
 - Browser session calls: `credentials: 'include'`
 - Resource success: `{ data: ... }`
@@ -235,7 +232,7 @@ Use a single typed client boundary that:
 - Driver: trip list/create/detail and start feedback.
 - Passenger: feedback context and feedback submission.
 
-See [FRONTEND_API_REFERENCE.md](FRONTEND_API_REFERENCE.md) for frontend integration details and [README.md](README.md) for the compact current endpoint list. Verify both against OpenAPI before wiring UI. Analytics, feedback review, rewards, exports, password reset, and driver aggregates may require backend work if not present in the live contract.
+See [FRONTEND_API_REFERENCE.md](FRONTEND_API_REFERENCE.md) for frontend integration details and [README.md](README.md) for the compact current endpoint list. Agency settings, profiles, direct administrator-driven password reset, admin feedback review, admin analytics, driver performance, and passenger completion context are implemented. Rewards and exports remain gated.
 
 ## 9. Passenger submission and offline queue
 
@@ -394,7 +391,6 @@ Do not copy another product's logo, trademark, proprietary illustration, exact c
 - Reward probability/no-prize semantics and final wheel visual design.
 - Analytics/chart endpoint contracts.
 - Feedback review and export endpoint contracts.
-- Password-reset endpoint and delivery behavior.
 - Driver aggregate endpoint contract.
 - Offline payload protection details appropriate to browser capabilities and threat model.
 - Whether dark mode is desired after MVP.
@@ -415,15 +411,23 @@ Open decisions must not be silently presented as confirmed behavior.
 | 2026-07-22 | Gate driver manual trip creation until an active-vehicle selector contract exists | The create endpoint requires `vehicleId`, but no driver vehicle-list endpoint is implemented | Confirmed API gap |
 | 2026-07-22 | Show no sample dashboard, feedback, performance, reward, or export data in production UI | Missing endpoints must remain honest and cannot be mistaken for persisted state | Implemented |
 
-## 18. Implemented frontend routes (2026-07-22)
+## 18. Implemented frontend routes (2026-07-25)
 
 - Public entry: `/`
 - Authentication: `/driver/login`, `/admin/login`
-- Driver: `/driver`, `/driver/trips`, `/driver/trips/[tripId]`, `/driver/trips/new`, `/driver/performance`, `/driver/pending-sync`
+- Driver: `/driver`, `/driver/trips`, `/driver/trips/[tripId]`, `/driver/trips/new`, `/driver/performance`, `/driver/pending-sync`, `/driver/profile`
 - Passenger: `/feedback`, safe in-place completion state at `/feedback/hand-back`
-- Admin: `/admin`, `/admin/trips`, `/admin/drivers`, `/admin/vendors`, `/admin/vehicles`, `/admin/questionnaires`, `/admin/questionnaires/[questionnaireId]`, `/admin/consent`, plus explicitly gated feedback, rewards, reports, and settings routes
+- Admin: `/admin` analytics, `/admin/feedback`, `/admin/feedback/[feedbackId]`, `/admin/settings`, `/admin/profile`, `/admin/trips`, `/admin/drivers`, `/admin/drivers/[driverId]`, `/admin/vendors`, `/admin/vehicles`, `/admin/questionnaires`, `/admin/questionnaires/[questionnaireId]`, `/admin/consent`, plus explicitly gated rewards and reports routes
 
 The passenger flow renders every server-supplied active question in snapshot order and retains the exact questionnaire object for submission. It uses IndexedDB for the immutable offline envelope and only removes a queued payload after accepted or idempotently replayed success.
+
+Admin and driver profile routes edit only role-appropriate identity fields and
+force a new sign-in after password changes. Driver operational fields are
+read-only. There are no public password-reset routes. An administrator can set
+a new password for a non-archived driver from the driver detail screen; the
+bodyless 204 response is presented as a completed direct reset, all driver
+sessions are revoked, and the administrator communicates the credential
+outside this product.
 
 ## 19. Maintenance checklist
 

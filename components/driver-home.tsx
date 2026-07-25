@@ -1,15 +1,32 @@
 "use client";
-import { useEffect,useState } from "react";
-import Link from "next/link";
-import type { Paginated, Trip } from "@/lib/contracts";
-import { ApiError, apiRequest, errorMessage } from "@/lib/api";
-import { EmptyState, ErrorAlert, LoadingCards, Unavailable } from "./ui";
-import { TripCard } from "./trip-card";
 
-export function DriverHome(){const [trips,setTrips]=useState<Trip[]|null>(null);const [error,setError]=useState<{message:string;requestId?:string}|null>(null);
-  async function load(){setError(null);try{const result=await apiRequest<Paginated<Trip>>("/api/v1/driver/trips?status=READY&page=1&pageSize=10");setTrips(result.data);}catch(cause){setError({message:errorMessage(cause),requestId:cause instanceof ApiError?cause.requestId:undefined});setTrips([])}}
-  useEffect(()=>{queueMicrotask(()=>void load())},[]);
-  return <><div className="page-header"><div><p className="eyebrow">Ready journeys</p><h1>Today’s handoffs</h1><p>Confirm the correct trip before giving the device to a passenger.</p></div><Link className="button" href="/driver/trips/new">Enter trip manually</Link></div>
-    <div className="grid-3" style={{marginBottom:"1.5rem"}}><div className="card stat"><span>Ready now</span><strong>{trips?.length??"—"}</strong><small>Assigned to your account</small></div><div className="card stat"><span>Waiting to sync</span><strong>—</strong><small>Stored only on this device</small></div><Unavailable title="Performance coming later">Your aggregate scores will appear when the backend performance endpoint is available.</Unavailable></div>
-    {error&&<><ErrorAlert message={error.message} requestId={error.requestId}/><button className="button button-secondary" onClick={load}>Try again</button></>}{trips===null&&!error&&<LoadingCards/>}{trips?.length===0&&!error&&<EmptyState title="No trips are ready">Trips assigned to you and ready for feedback will appear here.</EmptyState>}{trips&&trips.length>0&&<div className="trip-list">{trips.map(t=><TripCard key={t.id} trip={t}/>)}</div>}
-  </>}
+import { useEffect } from "react";
+import Link from "next/link";
+import type { Trip } from "@/lib/contracts";
+import { listQuery, totalPages } from "@/lib/pagination";
+import { EmptyState, ErrorAlert, LoadingCards } from "./ui";
+import { TripCard } from "./trip-card";
+import { PaginationControl, useListSearchParams, usePaginatedList } from "./pagination";
+
+export function DriverHome() {
+  const search = useListSearchParams();
+  const list = usePaginatedList<Trip>(
+    search.ready ? `/api/v1/driver/trips?${listQuery({ status: "READY", page: search.page, pageSize: search.pageSize })}` : null,
+  );
+
+  useEffect(() => {
+    if (!list.pagination) return;
+    const lastPage = Math.max(1, totalPages(list.pagination.total, list.pagination.pageSize));
+    if (search.page > lastPage) search.setPage(lastPage, lastPage);
+  }, [list.pagination, search.page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <>
+    <div className="page-header"><div><p className="eyebrow">Ready journeys</p><h1>Today’s handoffs</h1><p>Confirm the correct trip before giving the device to a passenger.</p></div><Link className="button" href="/driver/trips/new">Enter trip manually</Link></div>
+    <div className="grid-2" style={{ marginBottom: "1.5rem" }}><div className="card stat"><span>Ready now</span><strong>{list.pagination?.total ?? "—"}</strong><small>Assigned to your account</small></div><div className="card stat"><span>Waiting to sync</span><strong>—</strong><small>Stored only on this device</small></div></div>
+    {list.error && <><ErrorAlert message={list.error.message} requestId={list.error.requestId} /><button className="button button-secondary" onClick={() => void list.refetch()}>Try again</button></>}
+    {list.items === null && !list.error && <LoadingCards />}
+    {list.items?.length === 0 && !list.error && <EmptyState title="No trips are ready">Trips assigned to you and ready for feedback will appear here.</EmptyState>}
+    {list.items && list.items.length > 0 && <div className="trip-list" aria-busy={list.loading}>{list.items.map((trip) => <TripCard key={trip.id} trip={trip} />)}</div>}
+    {list.pagination && <PaginationControl {...list.pagination} page={search.page} loading={list.loading} onPageChange={(page) => search.setPage(page, totalPages(list.pagination!.total, list.pagination!.pageSize))} onPageSizeChange={search.setPageSize} />}
+  </>;
+}

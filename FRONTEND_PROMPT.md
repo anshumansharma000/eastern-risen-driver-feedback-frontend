@@ -163,7 +163,7 @@ Not all listed admin modules have backend endpoints yet. Gate unfinished modules
 
 ### API contract and error handling
 
-- The development API defaults to `http://localhost:3000`; read the frontend API base URL from a validated environment variable.
+- The development API defaults to `http://localhost:8080`; read the frontend API base URL from a validated environment variable so a production origin can be configured later.
 - Include credentials for session-authenticated requests.
 - Successful single-resource responses are `{ data: ... }`.
 - Collections are `{ data: [...], pagination: { page, pageSize, total } }`.

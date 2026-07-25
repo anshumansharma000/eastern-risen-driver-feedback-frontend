@@ -19,8 +19,8 @@ npm run db:migrate
 npm run dev
 ```
 
-The API listens on `http://localhost:3000`. OpenAPI documentation is available
-at `http://localhost:3000/docs` in development. Health endpoints are exposed at
+The API listens on `http://localhost:8080`. OpenAPI documentation is available
+at `http://localhost:8080/docs` in development. Health endpoints are exposed at
 `/health/live` and `/health/ready`.
 
 Production container, migration, secret, rollback, and monitoring instructions
@@ -58,12 +58,18 @@ The password is hashed with Argon2id before insertion and is never printed.
 - `POST /api/v1/auth/driver/login`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
+- `GET|PATCH /api/v1/admin/profile`
+- `POST /api/v1/admin/profile/change-password`
+- `GET|PATCH /api/v1/driver/profile`
+- `POST /api/v1/driver/profile/change-password`
 - `GET|POST /api/v1/admin/vendors`
 - `PATCH /api/v1/admin/vendors/:id`
 - `PATCH /api/v1/admin/vendors/:id/status`
 - `GET|POST /api/v1/admin/drivers`
 - `PATCH /api/v1/admin/drivers/:id`
+- `GET /api/v1/admin/drivers/:id`
 - `PATCH /api/v1/admin/drivers/:id/status`
+- `POST /api/v1/admin/drivers/:id/password-reset`
 - `GET|POST /api/v1/admin/vehicles`
 - `GET|PATCH /api/v1/admin/vehicles/:id`
 - `PATCH /api/v1/admin/vehicles/:id/status`
@@ -83,6 +89,12 @@ The password is hashed with Argon2id before insertion and is never printed.
 - `POST /api/v1/admin/questionnaires/:id/versions/:versionId/archive`
 - `GET /api/v1/admin/consent-versions/active`
 - `POST /api/v1/admin/consent-versions`
+- `GET|PATCH /api/v1/admin/settings`
+- `GET /api/v1/admin/feedback`
+- `GET /api/v1/admin/feedback/:id`
+- `PATCH /api/v1/admin/feedback/:id/review-state`
+- `GET /api/v1/admin/analytics`
+- `GET /api/v1/driver/performance`
 - `GET /api/v1/passenger/feedback/context`
 - `POST /api/v1/passenger/feedback/submissions`
 
@@ -105,15 +117,21 @@ inside the same transaction as the business mutation. The `outbox_messages`
 table is available for reliable email/export processing once delivery providers
 and payload-encryption key management are selected.
 
+An administrator resets a driver password directly. The operation returns no
+password and revokes all of that driver's active sessions; communicating the
+new credential happens outside this product.
+
 Vehicle and trip mutations are audited as well. An administrator can manage
 vehicles, create and assign trips, edit trips while they remain `READY`, and
 archive trips without deleting their history. Drivers can list only their own
 assigned trips, enter a trip for themselves, and transition a ready trip to
 `FEEDBACK_STARTED`.
 
-Each trip stores immutable snapshots of the selected vehicle, driver identity,
+Each trip stores explicit ISO start and end timestamps plus immutable snapshots of the selected vehicle, driver identity,
 driver source, and outsourced vendor. A trip can be created only with an active
 vehicle and active driver; outsourced drivers also require an active vendor.
+Driver assignment can also be disabled, limited to a timezone-aware shift and
+daily duty duration, or blocked by administrator-managed leave periods.
 
 Questionnaires use editable draft versions and immutable published versions.
 Replacing a draft's ordered question array supports adding, editing, reordering,

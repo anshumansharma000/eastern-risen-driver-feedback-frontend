@@ -1,1 +1,2 @@
-import { Unavailable } from "@/components/ui"; export default function PerformancePage(){return <main className="page"><div className="page-header"><div><p className="eyebrow">Private aggregates only</p><h1>Performance</h1><p>Only your arithmetic averages and response counts will be shown here—never individual answers or passenger details.</p></div></div><Unavailable title="Aggregate endpoint not available">Monthly overall and category averages are product-approved, but the backend has not implemented their read contract yet.</Unavailable></main>}
+import { DriverPerformanceView } from "@/components/driver-performance";
+export default function PerformancePage(){return <main className="page"><DriverPerformanceView/></main>}

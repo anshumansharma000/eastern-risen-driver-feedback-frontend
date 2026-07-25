@@ -5,7 +5,7 @@
 **Reference status:** Derived from implemented backend routes and TypeBox schemas  
 **Last verified:** 2026-07-22  
 **API prefix:** `/api/v1`  
-**Local backend:** `http://localhost:3000`
+**Local backend:** `http://localhost:8080`
 
 ## 1. Purpose and contract authority
 
@@ -18,7 +18,7 @@ Contract authority, from highest to lowest:
 3. This document.
 4. Product requirements that describe future API capabilities.
 
-Development documentation is available at `http://localhost:3000/docs` while the API is running. Frontend code should generate or validate types against the runtime OpenAPI contract where practical. Update this file when a route or schema changes.
+Development documentation is available at `http://localhost:8080/docs` while the API is running. Frontend code should generate or validate types against the runtime OpenAPI contract where practical. Update this file when a route or schema changes.
 
 ## 2. Global conventions
 
@@ -27,7 +27,7 @@ Development documentation is available at `http://localhost:3000/docs` while the
 Configure the frontend with a validated environment value, for example:
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 ```
 
 Append the documented route path beginning with `/api/v1`. Avoid embedding environment-specific hostnames in components.
@@ -276,10 +276,18 @@ All routes require an admin session.
 | --- | --- | --- | --- |
 | `GET` | `/api/v1/admin/drivers` | `200` paginated | Query filters |
 | `POST` | `/api/v1/admin/drivers` | `201` resource | Create body |
+| `GET` | `/api/v1/admin/drivers/:id` | `200` resource | — |
 | `PATCH` | `/api/v1/admin/drivers/:id` | `200` resource | Partial update |
 | `PATCH` | `/api/v1/admin/drivers/:id/status` | `200` resource | Status body |
+| `POST` | `/api/v1/admin/drivers/:id/password-reset` | `204` | New password |
+| `GET` | `/api/v1/admin/drivers/:id/leaves` | `200` data array | — |
+| `POST` | `/api/v1/admin/drivers/:id/leaves` | `201` resource | Leave start, end, optional reason |
+| `DELETE` | `/api/v1/admin/drivers/:id/leaves/:leaveId` | `204` | — |
 
-There is currently no `GET /admin/drivers/:id` and no implemented admin password-reset endpoint.
+`GET /admin/drivers/:id` returns the same complete `Driver` resource. Direct
+password reset accepts `{ newPassword: string }` where the value is 12–128
+characters and returns a bodyless HTTP 204. It revokes all of the driver's
+sessions and does not send an email or return the password.
 
 ```ts
 interface Driver {
@@ -292,6 +300,11 @@ interface Driver {
   sourceType: DriverSource;
   vendorId: string | null;
   vendorName: string | null;
+  assignmentEnabled: boolean;
+  shiftStartTime: string | null; // HH:mm
+  shiftEndTime: string | null; // HH:mm
+  timeZone: string; // IANA timezone
+  maxDailyDutyMinutes: number; // 1–1440
   status: LifecycleStatus;
   createdAt: string;
   updatedAt: string;
@@ -306,6 +319,11 @@ interface CreateDriverRequest {
   phone?: string; // max 32
   sourceType: DriverSource;
   vendorId?: string | null;
+  assignmentEnabled?: boolean; // default true
+  shiftStartTime?: string | null; // default null
+  shiftEndTime?: string | null; // default null
+  timeZone?: string; // default Asia/Kolkata
+  maxDailyDutyMinutes?: number; // default 720
 }
 
 type UpdateDriverRequest = Partial<{
@@ -315,8 +333,15 @@ type UpdateDriverRequest = Partial<{
   phone: string | null;
   sourceType: DriverSource;
   vendorId: string | null;
+  assignmentEnabled: boolean;
+  shiftStartTime: string | null;
+  shiftEndTime: string | null;
+  timeZone: string;
+  maxDailyDutyMinutes: number;
 }>; // at least one property; password is not editable here
 ```
+
+Shift start and end must be supplied together or both cleared. Equal times are invalid; overnight shifts are valid. Leave bodies use ISO `startsAt` and `endsAt`, with `endsAt` strictly after `startsAt`, plus an optional `reason`. A `204` leave deletion has no JSON body.
 
 List query and status body match vendors.
 
@@ -375,6 +400,7 @@ interface Trip {
   pickupLocation: string;
   destination: string;
   scheduledAt: string;
+  scheduledEndAt: string;
   vehicle: {
     id: string;
     registrationNumber: string;
@@ -402,6 +428,7 @@ interface TripFields {
   pickupLocation: string; // 1–500
   destination: string; // 1–500
   scheduledAt: string; // ISO date-time
+  scheduledEndAt: string; // ISO date-time, strictly after scheduledAt
   vehicleId: string;
 }
 ```
@@ -454,7 +481,9 @@ interface HandoffResponse {
 
 Starting feedback is idempotent while the trip is already `FEEDBACK_STARTED`; the backend can return the existing valid handoff. The token must be handed into the passenger flow without placing it in the URL.
 
-Relevant errors: `TRIP_NOT_FOUND`, `TRIP_NOT_EDITABLE`, `TRIP_CANNOT_START_FEEDBACK`, `ACTIVE_DRIVER_NOT_FOUND`, `ACTIVE_VEHICLE_NOT_FOUND`, `FEEDBACK_HANDOFF_UNAVAILABLE`, `ACTIVE_QUESTIONNAIRE_NOT_FOUND`, `ACTIVE_CONSENT_NOT_FOUND`.
+Relevant errors: `TRIP_NOT_FOUND`, `TRIP_NOT_EDITABLE`, `TRIP_CANNOT_START_FEEDBACK`, `ACTIVE_DRIVER_NOT_FOUND`, `ACTIVE_VEHICLE_NOT_FOUND`, `FEEDBACK_HANDOFF_UNAVAILABLE`, `ACTIVE_QUESTIONNAIRE_NOT_FOUND`, `ACTIVE_CONSENT_NOT_FOUND`, `TRIP_CANNOT_BE_SCHEDULED_IN_PAST`, `INVALID_TRIP_SCHEDULE`, `TRIP_LOCATIONS_MUST_DIFFER`, `TRIP_BOOKING_REFERENCE_ALREADY_EXISTS`, `DRIVER_NOT_AVAILABLE_FOR_ASSIGNMENT`, `DRIVER_SCHEDULE_CONFLICT`, `VEHICLE_SCHEDULE_CONFLICT`, `DRIVER_ON_LEAVE`, `TRIP_OUTSIDE_DRIVER_SHIFT`, and `DRIVER_DAILY_DUTY_LIMIT_EXCEEDED`.
+
+Trip date/time inputs represent local wall time and must be converted with the browser `Date` APIs before sending ISO values. Never append `Z` to an unconverted `datetime-local` string. Lists and details render a start-to-end range with an explicit timezone.
 
 ## 9. Admin questionnaires and consent
 
@@ -715,7 +744,70 @@ New acceptance returns `201` and `replayed: false`. Repeating the same accepted 
 
 Relevant errors: `FEEDBACK_HANDOFF_INVALID`, `CLIENT_SUBMISSION_ID_CONFLICT`, `TRIP_FEEDBACK_ALREADY_SUBMITTED`, `QUESTIONNAIRE_VERSION_INVALID`, `BOOKING_REFERENCE_MISMATCH`, `QUESTIONNAIRE_SNAPSHOT_INVALID`, `FEEDBACK_ANSWERS_INVALID`, `TRIP_FEEDBACK_STATE_CONFLICT`, `TRIP_NOT_FOUND`.
 
-## 11. Error handling reference
+Passenger context now also includes:
+
+```ts
+completion: {
+  agencyName: string;
+  timezone: string;
+  thankYouMessage: string;
+}
+```
+
+Use these server-provided values for passenger completion copy and trip-time
+formatting, including when an offline submission is queued.
+
+## 11. Agency settings
+
+Admin-session routes:
+
+- `GET /api/v1/admin/settings`
+- `PATCH /api/v1/admin/settings`
+
+The resource contains `agencyName`, IANA `timezone`,
+`defaultThankYouMessage`, and nullable inclusive 1–5
+`negativeFeedbackThreshold`, plus identifiers and timestamps. PATCH is partial
+and must contain at least one changed property. Passing `null` clears the
+threshold. Relevant error: `TIMEZONE_INVALID`.
+
+## 12. Admin feedback review
+
+Admin-session routes:
+
+- `GET /api/v1/admin/feedback`
+- `GET /api/v1/admin/feedback/:id`
+- `PATCH /api/v1/admin/feedback/:id/review-state`
+
+The list accepts `month`, `driverId`, `driverSource`, `vendorId`,
+`reviewState`, `submissionMode`, `category`, `minimumScore`, `maximumScore`,
+`negativeOnly`, `page`, and `pageSize`. It returns paginated immutable summary
+records plus `meta.timezone` and `meta.dateBasis: 'SUBMITTED_AT'`.
+
+Detail adds authorized respondent phone/email, trip/vehicle snapshots, ordered
+answer snapshots, consent/questionnaire version identifiers, and append-only
+review history. Review PATCH accepts `state: NORMAL | FLAGGED | ARCHIVED` and
+an optional reason; archive requires a non-empty reason and cannot be restored.
+Relevant errors: `FEEDBACK_NOT_FOUND`, `FEEDBACK_ARCHIVE_REASON_REQUIRED`,
+`FEEDBACK_REVIEW_TRANSITION_INVALID`, `FEEDBACK_RESTORE_NOT_SUPPORTED`, and
+`NEGATIVE_FEEDBACK_THRESHOLD_REQUIRED`.
+
+## 13. Driver performance
+
+`GET /api/v1/driver/performance?month=YYYY-MM` requires a driver session and
+returns `driverId`, nullable-average `overall`, category summaries, monthly
+trend, and timezone/date-basis metadata. Every score summary includes
+`averageScore`, `responseCount`, and `answerCount`. It never returns individual
+feedback or passenger data.
+
+## 14. Admin analytics
+
+`GET /api/v1/admin/analytics` requires an admin session and accepts `month`,
+`driverId`, `driverSource`, `vendorId`, and `category`. It returns server-built
+overall, category, driver, source, vendor, and monthly summaries, with nullable
+negative count/threshold and timezone/date-basis metadata. The client must not
+recombine averages.
+
+## 15. Error handling reference
 
 ### Global/system errors
 
@@ -773,7 +865,7 @@ Safe automatic retries generally include loss of connectivity, DNS/transport fai
 
 Do not automatically retry unchanged `400`, `401`, `403`, `404`, `409`, `413`, or `415` responses. Handle `429` using backoff and any future `Retry-After` header. For passenger feedback, domain errors must never be converted into offline queue success.
 
-## 12. Frontend client requirements
+## 16. Frontend client requirements
 
 The typed client layer should:
 
@@ -790,25 +882,37 @@ The typed client layer should:
 
 Prefer types generated from OpenAPI. If handwritten types are temporarily necessary, isolate them in one contract module and add contract tests so drift is detected.
 
-## 13. Known API gaps
+## 17. Known API gaps
 
 The product specification describes the following frontend capabilities, but the routes are not implemented as of the verification date:
 
-- driver self-service password reset and admin-initiated driver reset;
-- driver aggregate/performance endpoints and month filters;
-- admin dashboard analytics and negative-feedback metrics;
-- admin feedback list/detail, flag, archive, and review history;
 - rewards, prize inventory, wheel attempt/outcome, and reward email state;
 - reports and CSV/Excel/PDF exports;
-- agency settings and configurable thank-you message;
 - pending synchronization server status;
 - an active-vehicle list scoped for drivers, which currently blocks a usable manual driver trip form even though driver trip creation requires `vehicleId`;
-- dedicated driver and vendor detail reads;
+- dedicated vendor detail reads;
 - restore operations for archived records.
 
 The frontend must not invent production endpoints or show false mutation success. Use explicit feature gating or documented placeholders until a backend contract exists.
 
-## 14. Contract maintenance checklist
+### Profiles and driver password reset (verified 2026-07-25)
+
+The frontend consumes:
+
+- `GET|PATCH /api/v1/admin/profile`
+- `POST /api/v1/admin/profile/change-password` (bodyless 204)
+- `GET|PATCH /api/v1/driver/profile`
+- `POST /api/v1/driver/profile/change-password` (bodyless 204)
+- `GET /api/v1/admin/drivers/:id`
+- `POST /api/v1/admin/drivers/:id/password-reset` (bodyless 204)
+
+All calls include the opaque session cookie through `credentials: 'include'`.
+There are no public forgot-password, reset-link, reset-token, or email-reset
+routes. Drivers contact an administrator when they cannot sign in. Own-password
+changes and direct admin resets revoke the affected account's sessions.
+Passwords exist only in the active form and request body.
+
+## 18. Contract maintenance checklist
 
 When backend routes or schemas change:
 
