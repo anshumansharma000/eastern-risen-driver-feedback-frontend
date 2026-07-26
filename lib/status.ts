@@ -16,7 +16,25 @@ export function formatIndiaDate(value: string) {
 export function formatDateTime(value: string, timeZone = "Asia/Kolkata") {
   return new Intl.DateTimeFormat("en-IN", { timeZone, day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit", timeZoneName:"short" }).format(new Date(value));
 }
-export function formatTripRange(start: string, end: string, timeZone = "Asia/Kolkata") {
-  const formatter = new Intl.DateTimeFormat("en-IN", { timeZone, day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit", timeZoneName:"short" });
-  return formatter.formatRange(new Date(start), new Date(end));
+export function formatTripRange(start: string | null | undefined, end: string | null | undefined, timeZone = "Asia/Kolkata") {
+  const startDate = new Date(typeof start === "string" ? start : Number.NaN);
+  const endDate = new Date(typeof end === "string" ? end : Number.NaN);
+  if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate < startDate) {
+    return "Schedule unavailable";
+  }
+
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone,
+    day:"2-digit",
+    month:"short",
+    year:"numeric",
+    hour:"2-digit",
+    minute:"2-digit",
+    timeZoneName:"short",
+  };
+  try {
+    return new Intl.DateTimeFormat("en-IN", options).formatRange(startDate, endDate);
+  } catch {
+    return new Intl.DateTimeFormat("en-IN", { ...options, timeZone:"Asia/Kolkata" }).formatRange(startDate, endDate);
+  }
 }

@@ -20,6 +20,26 @@ import {
   updateAdminProfile,
   updateDriverProfile,
 } from "../lib/account-api.ts";
+import { formatTripRange } from "../lib/status.ts";
+
+test("trip range formatting does not crash on an invalid passenger-context schedule", () => {
+  assert.equal(formatTripRange("", "2030-01-01T11:00:00.000Z"), "Schedule unavailable");
+  assert.equal(formatTripRange(null, "2030-01-01T11:00:00.000Z"), "Schedule unavailable");
+  assert.equal(formatTripRange("2030-01-01T10:00:00.000Z", "not-a-date"), "Schedule unavailable");
+  assert.equal(formatTripRange("2030-01-01T11:00:00.000Z", "2030-01-01T10:00:00.000Z"), "Schedule unavailable");
+  assert.doesNotThrow(() => formatTripRange(
+    "2030-01-01T10:00:00.000Z",
+    "2030-01-01T11:00:00.000Z",
+    "Invalid/Timezone",
+  ));
+});
+
+test("star ratings visually highlight the selected star and every preceding star", () => {
+  const passenger = readFileSync(new URL("../components/passenger-flow.tsx", import.meta.url), "utf8");
+  const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(passenger, /data-highlighted=\{typeof value==="number"&&score<=value\}/);
+  assert.match(styles, /\.rating button\[data-highlighted="true"\]/);
+});
 
 test("frontend deployment uses static pages and query-based record routes", () => {
   const nextConfig = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
