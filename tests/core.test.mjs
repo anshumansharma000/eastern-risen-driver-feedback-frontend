@@ -21,6 +21,34 @@ import {
   updateDriverProfile,
 } from "../lib/account-api.ts";
 
+test("frontend deployment uses static pages and query-based record routes", () => {
+  const nextConfig = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
+  const workflow = readFileSync(new URL("../.github/workflows/deploy-pages.yml", import.meta.url), "utf8");
+  const detailRoutes = readFileSync(new URL("../components/query-detail-routes.tsx", import.meta.url), "utf8");
+  const navigationSources = [
+    "../components/admin-drivers.tsx",
+    "../components/admin-feedback-list.tsx",
+    "../components/questionnaires.tsx",
+    "../components/trip-card.tsx",
+  ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
+
+  assert.match(nextConfig, /output:\s*"export"/);
+  assert.match(nextConfig, /basePath/);
+  assert.match(workflow, /npm run build:static/);
+  for (const parameter of ["driverId", "feedbackId", "questionnaireId", "tripId"]) {
+    assert.match(detailRoutes, new RegExp(`useRequiredParameter\\("${parameter}"\\)`));
+    assert.match(navigationSources, new RegExp(`${parameter}=`));
+  }
+  for (const dynamicPage of [
+    "../app/admin/drivers/[driverId]/page.tsx",
+    "../app/admin/feedback/[feedbackId]/page.tsx",
+    "../app/admin/questionnaires/[questionnaireId]/page.tsx",
+    "../app/driver/trips/[tripId]/page.tsx",
+  ]) {
+    assert.equal(existsSync(new URL(dynamicPage, import.meta.url)), false);
+  }
+});
+
 test("only transport, server, and rate-limit failures are retryable", () => {
   assert.equal(canRetry(0, "transport"), true);
   assert.equal(canRetry(503, "server"), true);

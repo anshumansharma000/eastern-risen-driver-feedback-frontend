@@ -23,14 +23,19 @@ const kindFor = (status: number): ApiErrorKind => status === 400 ? "validation" 
 export const isRetryable = (error: unknown) => error instanceof ApiError && canRetry(error.status, error.kind);
 
 const apiBase = () => (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080").replace(/\/$/, "");
+const frontendBasePath = () => process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 let redirectingForAuthentication = false;
 function redirectExpiredSession(path: string, status: number, passengerToken?: string) {
   if (status !== 401 || passengerToken || typeof window === "undefined" || redirectingForAuthentication) return;
   if (/\/api\/v1\/auth\/(?:admin|driver)\/login$/.test(path)) return;
-  const role = window.location.pathname.startsWith("/admin") ? "admin" : window.location.pathname.startsWith("/driver") ? "driver" : null;
-  if (!role || window.location.pathname === `/${role}/login`) return;
+  const basePath = frontendBasePath();
+  const pathname = basePath && window.location.pathname.startsWith(basePath)
+    ? window.location.pathname.slice(basePath.length) || "/"
+    : window.location.pathname;
+  const role = pathname.startsWith("/admin") ? "admin" : pathname.startsWith("/driver") ? "driver" : null;
+  if (!role || pathname === `/${role}/login`) return;
   redirectingForAuthentication = true;
-  window.location.replace(`/${role}/login?reason=session-expired`);
+  window.location.replace(`${basePath}/${role}/login?reason=session-expired`);
 }
 export async function apiRequest<T>(path: string, init: RequestInit & { passengerToken?: string; timeoutMs?: number } = {}): Promise<T> {
   const { passengerToken, timeoutMs, ...requestInit } = init;

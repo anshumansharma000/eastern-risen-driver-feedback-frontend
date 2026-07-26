@@ -1,1 +1,0 @@
-import { QuestionnaireEditor } from "@/components/questionnaire-editor"; export default async function QuestionnaireVersionPage({params}:{params:Promise<{questionnaireId:string}>}){const {questionnaireId}=await params;return <main className="page"><QuestionnaireEditor questionnaireId={questionnaireId}/></main>}
