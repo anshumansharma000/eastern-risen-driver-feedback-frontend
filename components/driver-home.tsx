@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
 import type { Trip } from "@/lib/contracts";
 import { listQuery, totalPages } from "@/lib/pagination";
 import { EmptyState, ErrorAlert, LoadingCards } from "./ui";
@@ -21,7 +20,7 @@ export function DriverHome() {
   }, [list.pagination, search.page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <>
-    <div className="page-header"><div><p className="eyebrow">Ready journeys</p><h1>Today’s handoffs</h1><p>Confirm the correct trip before giving the device to a passenger.</p></div><Link className="button" href="/driver/trips/new">Enter trip manually</Link></div>
+    <div className="page-header"><div><p className="eyebrow">Ready journeys</p><h1>Today’s handoffs</h1><p>Confirm the correct trip before giving the device to a passenger.</p></div></div>
     <div className="grid-2" style={{ marginBottom: "1.5rem" }}><div className="card stat"><span>Ready now</span><strong>{list.pagination?.total ?? "—"}</strong><small>Assigned to your account</small></div><div className="card stat"><span>Waiting to sync</span><strong>—</strong><small>Stored only on this device</small></div></div>
     {list.error && <><ErrorAlert message={list.error.message} requestId={list.error.requestId} /><button className="button button-secondary" onClick={() => void list.refetch()}>Try again</button></>}
     {list.items === null && !list.error && <LoadingCards />}

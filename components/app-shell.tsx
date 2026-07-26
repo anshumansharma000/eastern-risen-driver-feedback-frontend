@@ -50,10 +50,11 @@ export function AppShell({ role, children }: { role: "driver" | "admin"; childre
   },[profileMenuOpen]);
   async function logout() { setProfileMenuOpen(false); try { await apiRequest("/api/v1/auth/logout", { method: "POST" }); } finally { router.replace(`/${role}/login`); } }
   const navigation=(label:string)=><nav className="side-nav" aria-label={label}>
-    {nav.map(([href,itemLabel]) => <Link onClick={()=>setMobileNavOpen(false)} key={href} href={href} data-active={pathname === href || (href !== `/${role}` && pathname.startsWith(`${href}/`))} className={unavailable.has(href) ? "unavailable-link" : undefined}>{itemLabel}{unavailable.has(href) && <small>Soon</small>}</Link>)}
+    {nav.map(([href,itemLabel]) => {const active=navigationActive(pathname,href,role);return <Link onClick={()=>setMobileNavOpen(false)} key={href} href={href} data-active={active} aria-current={active?"page":undefined} className={unavailable.has(href) ? "unavailable-link" : undefined}>{itemLabel}{unavailable.has(href) && <small>Soon</small>}</Link>})}
   </nav>;
   if(checkingSession)return <main className="page" aria-busy="true"><p>Checking your secure session…</p></main>;
-  const driverContextScreen=role==="driver"&&(pathname==="/driver/profile"||pathname.startsWith("/driver/trips/"));
+  const currentPath=normalizePath(pathname);
+  const driverContextScreen=role==="driver"&&(currentPath==="/driver/profile"||currentPath.startsWith("/driver/trips/"));
   const initials=accountInitials(principal?.displayName);
   return <div className={`app-layout ${role==="driver"?"driver-shell":"admin-shell"}`}>
     <aside className="sidebar"><Brand />
@@ -77,17 +78,28 @@ export function AppShell({ role, children }: { role: "driver" | "admin"; childre
       {children}
     </div>
     {role==="driver"&&<nav className="driver-bottom-nav" aria-label="Driver primary navigation">
-      {driverPrimaryNav.map(([href,label,icon])=><Link key={href} href={href} data-active={driverPrimaryActive(pathname,href)}>
+      {driverPrimaryNav.map(([href,label,icon])=>{const active=driverPrimaryActive(pathname,href);return <Link key={href} href={href} data-active={active} aria-current={active?"page":undefined}>
         <DriverNavIcon name={icon} />
         <span>{label}</span>
-      </Link>)}
+      </Link>})}
     </nav>}
   </div>;
 }
 
 function driverPrimaryActive(pathname:string,href:string){
-  if(href==="/driver")return pathname==="/driver"||pathname==="/driver/trips"||pathname.startsWith("/driver/trips/");
-  return pathname===href||pathname.startsWith(`${href}/`);
+  const current=normalizePath(pathname);
+  if(href==="/driver")return current==="/driver"||current==="/driver/trips"||current.startsWith("/driver/trips/");
+  return current===href||current.startsWith(`${href}/`);
+}
+
+function navigationActive(pathname:string,href:string,role:"driver"|"admin"){
+  const current=normalizePath(pathname);
+  if(role==="driver"&&href==="/driver")return current==="/driver"||current==="/driver/trips"||current.startsWith("/driver/trips/");
+  return current===href||current.startsWith(`${href}/`);
+}
+
+function normalizePath(pathname:string){
+  return pathname.length>1?pathname.replace(/\/+$/,""):pathname;
 }
 
 function accountInitials(name?:string){
