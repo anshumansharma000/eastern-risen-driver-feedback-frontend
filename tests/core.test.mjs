@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { backoffDelay, canRetry } from "../lib/retry-policy.ts";
 import { assignmentErrorFields, changedTripFields, normalizeLocation, validateTripSchedule } from "../lib/trip-scheduling.ts";
-import { ApiError, errorMessage } from "../lib/api.ts";
-import { assignmentSettingsFromForm, dutyMinutes, validateAssignmentSettings } from "../lib/driver-scheduling.ts";
+import { ApiError, apiRequest, errorMessage } from "../lib/api.ts";
+import { assignmentSettingsFromForm, dutyMinutes, validateAssignmentSettings, validateDriverLicense } from "../lib/driver-scheduling.ts";
 import { boundedPage, pageAfterRemovingLastItem, parsePaginatedResponse, totalPages, updateListSearch } from "../lib/pagination.ts";
 import { filterComboboxOptions } from "../lib/combobox.ts";
 import { adminAnalyticsPath, adminFeedbackPath, contractSearch, countLabel, driverPerformancePath, scoreLabel, validMonth } from "../lib/feedback-contract.ts";
@@ -21,6 +21,99 @@ import {
   updateDriverProfile,
 } from "../lib/account-api.ts";
 import { formatTripRange } from "../lib/status.ts";
+import { copyFeedbackLink, feedbackLinkFromHandoff, feedbackLinkPath, formatFeedbackLinkExpiry, isFeedbackLinkExpired, passengerTokenFromSearch, shareFeedbackLink } from "../lib/feedback-link.ts";
+
+test("feedback-link endpoints preserve admin and assigned-driver authorization boundaries", () => {
+  assert.equal(feedbackLinkPath("admin", "trip/one"), "/api/v1/admin/trips/trip%2Fone/feedback-link");
+  assert.equal(feedbackLinkPath("driver", "trip/one"), "/api/v1/driver/trips/trip%2Fone/feedback-link");
+  assert.equal(errorMessage(new ApiError(404, "TRIP_NOT_FOUND", "backend")), "This trip is unavailable or is not assigned to you.");
+});
+
+test("handoff uses the complete backend feedback link and formats expiry locally", () => {
+  const data = feedbackLinkFromHandoff({
+    id: "trip-1",
+    feedbackLink: "https://feedback.example/feedback?token=opaque.value",
+    feedbackAccessTokenExpiresAt: "2030-01-02T03:04:00.000Z",
+  });
+  assert.deepEqual(data, {
+    tripId: "trip-1",
+    feedbackLink: "https://feedback.example/feedback?token=opaque.value",
+    feedbackAccessTokenExpiresAt: "2030-01-02T03:04:00.000Z",
+  });
+  assert.equal(isFeedbackLinkExpired(data.feedbackAccessTokenExpiresAt, new Date("2030-01-02T03:03:59.000Z")), false);
+  assert.equal(isFeedbackLinkExpired(data.feedbackAccessTokenExpiresAt, new Date("2030-01-02T03:04:00.000Z")), true);
+  assert.notEqual(formatFeedbackLinkExpiry(data.feedbackAccessTokenExpiresAt, "en-IN"), "Expiration unavailable");
+});
+
+test("passenger feedback reads only the token query parameter", () => {
+  assert.equal(passengerTokenFromSearch("?token=opaque%20token&campaign=ignored"), "opaque token");
+  assert.equal(passengerTokenFromSearch("?campaign=missing"), null);
+  assert.equal(passengerTokenFromSearch("?token=%20%20"), null);
+});
+
+test("passenger API calls send the query token as a Bearer credential without cookies", async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (url, init) => {
+    request = { url, init };
+    return new Response(JSON.stringify({ data: { ok:true } }), { status:200, headers:{ "content-type":"application/json" } });
+  };
+  try {
+    await apiRequest("/api/v1/passenger/feedback/context", { passengerToken:"opaque.token" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(new Headers(request.init.headers).get("authorization"), "Bearer opaque.token");
+  assert.equal(request.init.credentials, "omit");
+});
+
+test("copy and native share receive the complete backend link and report cancellation", async () => {
+  const link = "https://feedback.example/feedback?token=opaque.value";
+  let copied = "";
+  await copyFeedbackLink(link, { writeText: async (value) => { copied = value; } });
+  assert.equal(copied, link);
+  let shared;
+  assert.equal(await shareFeedbackLink(link, async (value) => { shared = value; }), "shared");
+  assert.equal(shared.url, link);
+  const cancellation = new Error("cancelled");
+  cancellation.name = "AbortError";
+  assert.equal(await shareFeedbackLink(link, async () => { throw cancellation; }), "cancelled");
+});
+
+test("share and passenger UI preserve exact links, bearer tokens, and non-persistent handling", () => {
+  const share = readFileSync(new URL("../components/share-feedback-link.tsx", import.meta.url), "utf8");
+  const passenger = readFileSync(new URL("../components/passenger-flow.tsx", import.meta.url), "utf8");
+  const driver = readFileSync(new URL("../components/trip-card.tsx", import.meta.url), "utf8");
+  const admin = readFileSync(new URL("../components/admin-trips.tsx", import.meta.url), "utf8");
+  assert.match(share, /copyFeedbackLink\(details\.feedbackLink, navigator\.clipboard\)/);
+  assert.match(share, /shareFeedbackLink\(details\.feedbackLink, navigator\.share\.bind\(navigator\)\)/);
+  assert.match(share, /result === "cancelled"/);
+  assert.match(driver, /trip\.status==="READY"\|\|trip\.status==="FEEDBACK_STARTED"\)\&\&<ShareFeedbackLinkAction tripId=\{trip\.id\} audience="driver"/);
+  assert.match(driver, /setHandoff\(response\.data\.feedbackAccessToken,response\.data\.feedbackAccessTokenExpiresAt\);router\.push\("\/feedback"\)/);
+  assert.match(admin, /trip\.status === "READY" \|\| trip\.status === "FEEDBACK_STARTED"\) && <ShareFeedbackLinkAction tripId=\{trip\.id\} audience="admin"/);
+  assert.match(passenger, /passengerTokenFromSearch\(window\.location\.search\)/);
+  assert.match(passenger, /passengerToken:token/g);
+  assert.match(passenger, /apiRequest<\{data:PassengerFeedbackStart\}>\("\/api\/v1\/passenger\/feedback\/start",\{method:"POST",passengerToken:token\}\)/);
+  assert.match(passenger, /history\.replaceState\(null,"",`\$\{basePath\}\/feedback\/hand-back\/`\)/);
+  assert.doesNotMatch(passenger, /localStorage|sessionStorage/);
+  assert.match(passenger, /if\(sharedLink\)throw new ApiError/);
+  assert.match(passenger, /if\(!sharedLink&&isRetryable\(cause\)\)await enqueue/);
+});
+
+test("active driver journeys, searchable booking selection, and source-aware completion remain visible", () => {
+  const journeys = readFileSync(new URL("../components/driver-home.tsx", import.meta.url), "utf8");
+  const trips = readFileSync(new URL("../components/admin-trips.tsx", import.meta.url), "utf8");
+  const passenger = readFileSync(new URL("../components/passenger-flow.tsx", import.meta.url), "utf8");
+  const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(journeys, /status:"READY"/);
+  assert.match(journeys, /status:"FEEDBACK_STARTED"/);
+  assert.doesNotMatch(journeys, /status:"SUBMITTED"/);
+  assert.match(trips, /<Combobox id="bookingId" name="bookingId" label="Booking" options=\{bookingOptions\}/);
+  assert.match(passenger, /linkToken\)return\{token:linkToken,sharedLink:true\}/);
+  assert.match(passenger, /\{!sharedLink&&<><div className="handback">/);
+  assert.match(styles, /\.select \{ appearance:none; padding-right:2\.8rem;/);
+  assert.match(styles, /background-position:right \.95rem center/);
+});
 
 test("trip range formatting does not crash on an invalid passenger-context schedule", () => {
   assert.equal(formatTripRange("", "2030-01-01T11:00:00.000Z"), "Schedule unavailable");
@@ -86,7 +179,7 @@ test("retry backoff is bounded", () => {
 });
 
 const futureTrip = {
-  bookingReference:"BK-1", passengerName:"Passenger", pickupLocation:"Airport", destination:"Hotel",
+  bookingId:"booking-1", pickupLocation:"Airport", destination:"Hotel",
   scheduledAt:"2030-01-01T10:00:00.000Z", scheduledEndAt:"2030-01-01T11:00:00.000Z", vehicleId:"vehicle-1", driverId:"driver-1",
 };
 
@@ -100,8 +193,8 @@ test("trip schedule validation rejects past starts, reversed ranges, and normali
 });
 
 test("editing an unrelated trip field preserves scheduledEndAt", () => {
-  const patch = changedTripFields({ ...futureTrip, vehicle:{id:"vehicle-1"}, driver:{id:"driver-1"} }, { ...futureTrip, passengerName:"Updated" });
-  assert.deepEqual(patch, { passengerName:"Updated" });
+  const patch = changedTripFields({ ...futureTrip, booking:{id:"booking-1"}, vehicle:{id:"vehicle-1"}, driver:{id:"driver-1"} }, { ...futureTrip, destination:"Station" });
+  assert.deepEqual(patch, { destination:"Station" });
 });
 
 test("all assignment errors have actionable messages and relevant fields", () => {
@@ -109,7 +202,8 @@ test("all assignment errors have actionable messages and relevant fields", () =>
     TRIP_CANNOT_BE_SCHEDULED_IN_PAST:"The trip must be scheduled in the future.",
     INVALID_TRIP_SCHEDULE:"The trip end time must be after the start time.",
     TRIP_LOCATIONS_MUST_DIFFER:"Pickup and destination must be different.",
-    TRIP_BOOKING_REFERENCE_ALREADY_EXISTS:"This booking reference is already in use.",
+    ACTIVE_BOOKING_NOT_FOUND:"Choose an active booking for this trip.",
+    TRIP_OUTSIDE_BOOKING_PERIOD:"The trip must start and end within the booking period.",
     DRIVER_NOT_AVAILABLE_FOR_ASSIGNMENT:"The selected driver is currently unavailable for assignment.",
     DRIVER_SCHEDULE_CONFLICT:"The selected driver already has another trip during this time.",
     VEHICLE_SCHEDULE_CONFLICT:"The selected vehicle already has another trip during this time.",
@@ -139,6 +233,17 @@ test("driver assignment validation accepts overnight shifts", () => {
   assert.match(validateAssignmentSettings({
     assignmentEnabled:true, shiftStartTime:"09:00", shiftEndTime:null, timeZone:"Asia/Kolkata", maxDailyDutyMinutes:720,
   }),/both/);
+});
+
+test("driver license dates remain optional and expiry must follow issue date", () => {
+  const empty = new FormData();
+  assert.equal(validateDriverLicense(empty), null);
+  const invalid = new FormData();
+  invalid.set("licenseIssuedOn", "2030-06-01");
+  invalid.set("licenseExpiresOn", "2030-06-01");
+  assert.match(validateDriverLicense(invalid), /after/);
+  invalid.set("licenseExpiresOn", "2031-06-01");
+  assert.equal(validateDriverLicense(invalid), null);
 });
 
 test("paginated responses are parsed and malformed legacy list envelopes are rejected", () => {

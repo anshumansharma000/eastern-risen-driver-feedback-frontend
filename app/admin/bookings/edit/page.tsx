@@ -1,0 +1,1 @@
+import { Suspense } from "react"; import { BookingEditRoute } from "@/components/admin-bookings"; import { LoadingCards } from "@/components/ui"; export default function Page(){return <main className="page"><Suspense fallback={<LoadingCards/>}><BookingEditRoute/></Suspense></main>}

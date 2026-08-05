@@ -3,6 +3,7 @@ export type LifecycleStatus = "ACTIVE" | "DEACTIVATED" | "ARCHIVED";
 export type DriverSource = "AGENCY" | "OUTSOURCED";
 export type TripCreationSource = "ADMIN_ASSIGNED" | "DRIVER_ENTERED";
 export type TripStatus = "READY" | "FEEDBACK_STARTED" | "SUBMITTED" | "ARCHIVED";
+export type BookingStatus = "ACTIVE" | "COMPLETED" | "CANCELLED" | "ARCHIVED";
 export type QuestionType = "STAR_RATING" | "EMOJI_RATING" | "YES_NO" | "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TEXT";
 export type QuestionCategory = "OVERALL_EXPERIENCE" | "DRIVING_SAFETY" | "PUNCTUALITY" | "CLEANLINESS" | "PROFESSIONALISM" | "VEHICLE_CONDITION" | "CUSTOM";
 
@@ -53,8 +54,12 @@ export interface DriverSummary {
   id: string; displayName: string; driverCode: string; sourceType: DriverSource; vendorId: string | null; vendorName: string | null; status?: LifecycleStatus;
   assignmentEnabled: boolean; shiftStartTime: string | null; shiftEndTime: string | null; timeZone: string; maxDailyDutyMinutes: number;
 }
+export interface DriverLicense {
+  id: string; licenseNumber: string | null; issuedOn: string | null; expiresOn: string | null;
+  issuingAuthority: string | null; categories: string[] | null; verifiedAt: string | null;
+}
 export interface Vendor { id:string; name:string; contactName:string|null; contactEmail:string|null; contactPhone:string|null; status:LifecycleStatus; createdAt:string; updatedAt:string; archivedAt:string|null }
-export interface AdminDriver extends DriverSummary { accountId:string; email:string; phone:string|null; status:LifecycleStatus; createdAt:string; updatedAt:string; archivedAt:string|null }
+export interface AdminDriver extends DriverSummary { accountId:string; email:string; phone:string|null; status:LifecycleStatus; license:DriverLicense|null; createdAt:string; updatedAt:string; archivedAt:string|null }
 export interface Vehicle extends VehicleSummary { status:LifecycleStatus; createdAt:string; updatedAt:string; archivedAt:string|null }
 export interface QuestionnaireSummary { id:string; name:string; status:"ACTIVE"|"ARCHIVED"; createdAt:string; updatedAt:string; archivedAt:string|null }
 export type QuestionnaireVersionStatus="DRAFT"|"ACTIVE"|"RETIRED"|"ARCHIVED";
@@ -62,12 +67,22 @@ export interface QuestionnaireVersionSummary { id:string; questionnaireId:string
 export interface AdminQuestion { id:string; stableKey:string; prompt:string; questionType:QuestionType; category:QuestionCategory; status:"ACTIVE"|"INACTIVE"|"ARCHIVED"; isRequired:boolean; contributesToScore:boolean; displayOrder:number; scoreMin:number|null; scoreMax:number|null; options:PassengerOption[] }
 export interface QuestionnaireVersion extends QuestionnaireVersionSummary { questionnaireName:string; questions:AdminQuestion[] }
 export interface Trip {
-  id: string; bookingReference: string; passengerName: string; pickupLocation: string; destination: string; scheduledAt: string; scheduledEndAt: string;
+  id: string; booking: { id:string; bookingReference:string; passengerName:string }; pickupLocation: string; destination: string; scheduledAt: string; scheduledEndAt: string;
   vehicle: VehicleSummary; driver: DriverSummary; creationSource: TripCreationSource; status: TripStatus;
   startedFeedbackAt: string | null; createdAt: string; updatedAt: string; archivedAt: string | null;
 }
+export interface Booking {
+  id:string; bookingReference:string; passengerName:string; startsAt:string; endsAt:string; status:BookingStatus;
+  notes:string|null; tripCount:number; createdAt:string; updatedAt:string; archivedAt:string|null;
+}
+export interface BookingDetail extends Booking { trips:Trip[] }
 export interface DriverLeave { id:string; driverId:string; startsAt:string; endsAt:string; reason:string|null; createdAt:string }
-export interface HandoffTrip extends Trip { feedbackAccessToken: string; feedbackAccessTokenExpiresAt: string }
+export interface HandoffTrip extends Trip { feedbackAccessToken: string; feedbackAccessTokenExpiresAt: string; feedbackLink: string }
+export interface FeedbackLink {
+  tripId: string;
+  feedbackLink: string;
+  feedbackAccessTokenExpiresAt: string;
+}
 export interface PassengerOption { valueKey: string; label: string; scoreValue: number | null; displayOrder: number }
 export interface PassengerQuestion {
   id: string; stableKey: string; prompt: string; questionType: QuestionType; category: QuestionCategory;
@@ -80,6 +95,7 @@ export interface PassengerContext {
   questionnaire: QuestionnaireSnapshot; consent: ConsentVersion;
   completion: { agencyName: string; timezone: string; thankYouMessage: string };
 }
+export interface PassengerFeedbackStart { tripId:string; status:"FEEDBACK_STARTED"; startedFeedbackAt:string }
 export type AnswerValue = number | string | boolean | string[];
 export interface FeedbackAnswer { questionId: string; value: AnswerValue }
 export interface SubmitFeedbackRequest {

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import type { AdminDriver, Trip, TripCreationSource, TripStatus, Vehicle } from "@/lib/contracts";
+import Link from "next/link";
+import type { AdminDriver, Booking, Trip, TripCreationSource, TripStatus, Vehicle } from "@/lib/contracts";
 import { ApiError, apiRequest, errorMessage, getPaginated } from "@/lib/api";
 import { formatTripRange, tripSource, tripStatus } from "@/lib/status";
 import { assignmentErrorFields, changedTripFields, validateTripSchedule, type TripFieldName, type TripScheduleInput, type TripValidationErrors } from "@/lib/trip-scheduling";
@@ -11,6 +12,7 @@ import { Modal } from "./modal";
 import { PaginationControl, useListSearchParams, usePaginatedList } from "./pagination";
 import { Combobox, type ComboboxOption } from "./combobox";
 import { AlertDialog } from "./alert-dialog";
+import { ShareFeedbackLinkAction } from "./share-feedback-link";
 
 type TripDialog = { mode: "create" } | { mode: "edit"; trip: Trip };
 type TripFormValues = TripScheduleInput & { driverId: string };
@@ -34,8 +36,7 @@ function focusTripField(form: HTMLFormElement, field: TripFieldName) {
 export function tripValuesFromForm(form: HTMLFormElement): TripFormValues {
   const data = new FormData(form);
   return {
-    bookingReference: String(data.get("bookingReference") || "").trim(),
-    passengerName: String(data.get("passengerName") || "").trim(),
+    bookingId: String(data.get("bookingId") || ""),
     pickupLocation: String(data.get("pickupLocation") || "").trim(),
     destination: String(data.get("destination") || "").trim(),
     scheduledAt: localValueToIso(data.get("scheduledAt")),
@@ -46,13 +47,14 @@ export function tripValuesFromForm(form: HTMLFormElement): TripFormValues {
 }
 
 export function changedTripValues(trip: Trip, values: TripFormValues) {
-  return changedTripFields({ ...trip, vehicleId: trip.vehicle.id, driverId: trip.driver.id }, values);
+  return changedTripFields(trip, values);
 }
 
 export function AdminTrips() {
   const search = useListSearchParams();
   const [drivers, setDrivers] = useState<AdminDriver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const statusValues: TripStatus[] = ["READY", "FEEDBACK_STARTED", "SUBMITTED", "ARCHIVED"];
   const sourceValues: TripCreationSource[] = ["ADMIN_ASSIGNED", "DRIVER_ENTERED"];
   const statusParam = search.parameters.get("status") as TripStatus | null;
@@ -60,7 +62,8 @@ export function AdminTrips() {
   const status = statusParam && statusValues.includes(statusParam) ? statusParam : "READY";
   const creationSource = sourceParam && sourceValues.includes(sourceParam) ? sourceParam : null;
   const driverId = search.parameters.get("driverId");
-  const path = search.ready ? `/api/v1/admin/trips?${listQuery({ status, driverId, creationSource, page: search.page, pageSize: search.pageSize })}` : null;
+  const bookingId = search.parameters.get("bookingId");
+  const path = search.ready ? `/api/v1/admin/trips?${listQuery({ status, driverId, bookingId, creationSource, page: search.page, pageSize: search.pageSize })}` : null;
   const list = usePaginatedList<Trip>(path);
   const [dialog, setDialog] = useState<TripDialog | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,11 +75,12 @@ export function AdminTrips() {
   const loadOptions = useCallback(async () => {
     setError(null);
     try {
-      const [driverList, vehicleList] = await Promise.all([
+      const [driverList, vehicleList, bookingList] = await Promise.all([
         getPaginated<AdminDriver>("/api/v1/admin/drivers?status=ACTIVE&page=1&pageSize=100"),
         getPaginated<Vehicle>("/api/v1/admin/vehicles?status=ACTIVE&page=1&pageSize=100"),
+        getPaginated<Booking>("/api/v1/admin/bookings?status=ACTIVE&page=1&pageSize=100"),
       ]);
-      setDrivers(driverList.data); setVehicles(vehicleList.data);
+      setDrivers(driverList.data); setVehicles(vehicleList.data); setBookings(bookingList.data);
     } catch (cause) {
       setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined });
     }
@@ -142,22 +146,22 @@ export function AdminTrips() {
 
   return <>
     <div className="page-header"><div><p className="eyebrow">Journey operations</p><h1>Trips</h1><p>Create and assign trips using active drivers and vehicles. Times are shown in India Standard Time.</p></div><button className="button" onClick={() => openDialog({ mode: "create" })}>Create assigned trip</button></div>
-    <div className="toolbar"><div className="filters"><select className="select" value={status} onChange={(event) => search.update({ status: event.target.value }, true)} aria-label="Filter trip status"><option value="READY">Ready for feedback</option><option value="FEEDBACK_STARTED">Feedback started</option><option value="SUBMITTED">Feedback received</option><option value="ARCHIVED">Archived</option></select><select className="select" value={driverId || ""} onChange={(event) => search.update({ driverId: event.target.value || null }, true)} aria-label="Filter by driver"><option value="">All drivers</option>{drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.displayName}</option>)}</select><select className="select" value={creationSource || ""} onChange={(event) => search.update({ creationSource: event.target.value || null }, true)} aria-label="Filter by creation source"><option value="">All creation sources</option><option value="ADMIN_ASSIGNED">Admin assigned</option><option value="DRIVER_ENTERED">Driver entered</option></select></div><button className="button button-secondary" disabled={list.loading} onClick={() => void list.refetch()}>Refresh</button></div>
+    <div className="toolbar"><div className="filters"><select className="select" value={status} onChange={(event) => search.update({ status: event.target.value }, true)} aria-label="Filter trip status"><option value="READY">Ready for feedback</option><option value="FEEDBACK_STARTED">Feedback started</option><option value="SUBMITTED">Feedback received</option><option value="ARCHIVED">Archived</option></select><select className="select" value={bookingId || ""} onChange={(event) => search.update({ bookingId: event.target.value || null }, true)} aria-label="Filter by booking"><option value="">All active bookings</option>{bookings.map((booking) => <option key={booking.id} value={booking.id}>{booking.bookingReference} · {booking.passengerName}</option>)}</select><select className="select" value={driverId || ""} onChange={(event) => search.update({ driverId: event.target.value || null }, true)} aria-label="Filter by driver"><option value="">All drivers</option>{drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.displayName}</option>)}</select><select className="select" value={creationSource || ""} onChange={(event) => search.update({ creationSource: event.target.value || null }, true)} aria-label="Filter by creation source"><option value="">All creation sources</option><option value="ADMIN_ASSIGNED">Admin assigned</option><option value="DRIVER_ENTERED">Driver entered</option></select></div><button className="button button-secondary" disabled={list.loading} onClick={() => void list.refetch()}>Refresh</button></div>
     {(error || list.error) && <ErrorAlert message={(error || list.error)!.message} requestId={(error || list.error)!.requestId} />}
     {list.items === null && !list.error && <LoadingCards />}
     {list.items?.length === 0 && !error && !list.error && <EmptyState title="No trips match this view">Create a journey or choose another feedback status.</EmptyState>}
     {list.items && list.items.length > 0 && <section className="trip-list" aria-busy={list.loading}>{list.items.map((trip) => {
       const state = tripStatus[trip.status];
-      return <article className="card trip-card" key={trip.id}><div className="trip-card-head"><div><span className="eyebrow">{tripSource[trip.creationSource]}</span><h3>{trip.bookingReference}</h3><span className="trip-meta">{formatTripRange(trip.scheduledAt, trip.scheduledEndAt)} · {trip.driver.displayName} · {trip.vehicle.displayName}</span></div><StatusBadge label={state.label} tone={state.tone} /></div><div className="route"><div className="route-line"><i className="route-dot" /><i className="route-dot" /></div><div className="route-points"><span><small>Pickup</small>{trip.pickupLocation}</span><span><small>Destination</small>{trip.destination}</span></div></div>{trip.status !== "ARCHIVED" && <div className="trip-actions">{trip.status === "READY" && <button className="button button-secondary" disabled={busy} onClick={() => openDialog({ mode: "edit", trip })}>Edit trip</button>}<button className="button button-secondary" disabled={busy} onClick={() => setPendingArchive(trip)}>Archive trip</button></div>}</article>;
+      return <article className="card trip-card" key={trip.id}><div className="trip-card-head"><div><span className="eyebrow">{tripSource[trip.creationSource]}</span><h3><Link className="text-link" href={`/admin/bookings/detail?bookingId=${encodeURIComponent(trip.booking.id)}`}>{trip.booking.bookingReference}</Link></h3><span className="trip-meta">{trip.booking.passengerName} · {formatTripRange(trip.scheduledAt, trip.scheduledEndAt)} · {trip.driver.displayName} · {trip.vehicle.displayName}</span></div><StatusBadge label={state.label} tone={state.tone} /></div><div className="route"><div className="route-line"><i className="route-dot" /><i className="route-dot" /></div><div className="route-points"><span><small>Pickup</small>{trip.pickupLocation}</span><span><small>Destination</small>{trip.destination}</span></div></div>{trip.status !== "ARCHIVED" && <div className="trip-actions">{(trip.status === "READY" || trip.status === "FEEDBACK_STARTED") && <ShareFeedbackLinkAction tripId={trip.id} audience="admin"/>}{trip.status === "READY" && <button className="button button-secondary" disabled={busy} onClick={() => openDialog({ mode: "edit", trip })}>Edit trip</button>}<button className="button button-secondary" disabled={busy} onClick={() => setPendingArchive(trip)}>Archive trip</button></div>}</article>;
     })}</section>}
     {list.pagination && <PaginationControl {...list.pagination} page={search.page} loading={list.loading} onPageChange={(page) => search.setPage(page, totalPages(list.pagination!.total, list.pagination!.pageSize))} onPageSizeChange={search.setPageSize} />}
-    {dialog && <Modal onDismiss={() => !busy && setDialog(null)}><TripForm mode={dialog.mode} trip={dialog.mode === "edit" ? dialog.trip : undefined} drivers={drivers} vehicles={vehicles} busy={busy} error={dialogError} fieldErrors={fieldErrors} onCancel={() => setDialog(null)} onSubmit={submit} /></Modal>}
-    {pendingArchive && <AlertDialog title={`Archive trip ${pendingArchive.bookingReference}?`} confirmLabel="Archive trip" destructive busy={busy} onCancel={() => setPendingArchive(null)} onConfirm={() => void archive(pendingArchive.id)}><p>The trip will leave active views but remain available in historical records.</p></AlertDialog>}
+    {dialog && <Modal onDismiss={() => !busy && setDialog(null)}><TripForm mode={dialog.mode} trip={dialog.mode === "edit" ? dialog.trip : undefined} bookings={bookings} drivers={drivers} vehicles={vehicles} busy={busy} error={dialogError} fieldErrors={fieldErrors} onCancel={() => setDialog(null)} onSubmit={submit} /></Modal>}
+    {pendingArchive && <AlertDialog title={`Archive trip ${pendingArchive.booking.bookingReference}?`} confirmLabel="Archive trip" destructive busy={busy} onCancel={() => setPendingArchive(null)} onConfirm={() => void archive(pendingArchive.id)}><p>The trip will leave active views but remain available in historical records.</p></AlertDialog>}
   </>;
 }
 
-function TripForm({ mode, trip, drivers, vehicles, busy, error, fieldErrors, onCancel, onSubmit }: {
-  mode: "create" | "edit"; trip?: Trip; drivers: AdminDriver[]; vehicles: Vehicle[]; busy: boolean;
+function TripForm({ mode, trip, bookings, drivers, vehicles, busy, error, fieldErrors, onCancel, onSubmit }: {
+  mode: "create" | "edit"; trip?: Trip; bookings:Booking[]; drivers: AdminDriver[]; vehicles: Vehicle[]; busy: boolean;
   error: { message: string; requestId?: string } | null; fieldErrors: TripValidationErrors;
   onCancel: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -175,6 +179,15 @@ function TripForm({ mode, trip, drivers, vehicles, busy, error, fieldErrors, onC
   if (trip && !driverAvailable) {
     driverOptions.unshift({ value: trip.driver.id, label: trip.driver.displayName, description: `${trip.driver.driverCode} · current assignment` });
   }
+  const bookingOptions: ComboboxOption[] = bookings.map((booking) => ({
+    value: booking.id,
+    label: booking.bookingReference,
+    description: booking.passengerName,
+    keywords: booking.passengerName,
+  }));
+  if (trip && !bookings.some((booking) => booking.id === trip.booking.id)) {
+    bookingOptions.unshift({ value: trip.booking.id, label: trip.booking.bookingReference, description: `${trip.booking.passengerName} · current booking` });
+  }
   const vehicleOptions: ComboboxOption[] = vehicles.map((vehicle) => ({
     value: vehicle.id,
     label: vehicle.displayName,
@@ -188,8 +201,7 @@ function TripForm({ mode, trip, drivers, vehicles, busy, error, fieldErrors, onC
     <span className="eyebrow">{mode === "edit" ? "Ready trip" : "Admin-assigned"}</span><h2 ref={headingRef} tabIndex={-1}>{mode === "edit" ? "Edit trip" : "Create a trip"}</h2>
     <p className="trip-meta">Enter times in this device’s timezone ({deviceTimeZone()}). Trip lists are displayed in India Standard Time.</p>
     {error && <ErrorAlert message={error.message} requestId={error.requestId} />}
-    <TripField name="bookingReference" label="Booking reference" maxLength={100} defaultValue={trip?.bookingReference} error={fieldErrors.bookingReference} />
-    <TripField name="passengerName" label="Passenger name" maxLength={200} defaultValue={trip?.passengerName} />
+    <Combobox id="bookingId" name="bookingId" label="Booking" options={bookingOptions} defaultValue={trip?.booking.id} placeholder="Search by booking reference or passenger" emptyMessage="No active bookings match that search" error={fieldErrors.bookingId} hint="Searches active bookings currently loaded." required />
     <TripField name="pickupLocation" label="Pickup location" maxLength={500} defaultValue={trip?.pickupLocation} error={fieldErrors.pickupLocation} />
     <TripField name="destination" label="Destination" maxLength={500} defaultValue={trip?.destination} error={fieldErrors.destination} />
     <ScheduleFields trip={trip} fieldErrors={fieldErrors} />

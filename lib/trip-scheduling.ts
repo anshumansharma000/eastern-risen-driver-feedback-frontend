@@ -1,6 +1,5 @@
 export type TripScheduleInput = {
-  bookingReference: string;
-  passengerName: string;
+  bookingId: string;
   pickupLocation: string;
   destination: string;
   scheduledAt: string;
@@ -35,7 +34,8 @@ export const assignmentErrorFields: Record<string, TripFieldName[]> = {
   TRIP_CANNOT_BE_SCHEDULED_IN_PAST: ["scheduledAt"],
   INVALID_TRIP_SCHEDULE: ["scheduledEndAt"],
   TRIP_LOCATIONS_MUST_DIFFER: ["pickupLocation", "destination"],
-  TRIP_BOOKING_REFERENCE_ALREADY_EXISTS: ["bookingReference"],
+  ACTIVE_BOOKING_NOT_FOUND: ["bookingId"],
+  TRIP_OUTSIDE_BOOKING_PERIOD: ["bookingId", "scheduledAt", "scheduledEndAt"],
   DRIVER_NOT_AVAILABLE_FOR_ASSIGNMENT: ["driverId"],
   DRIVER_SCHEDULE_CONFLICT: ["driverId", "scheduledAt", "scheduledEndAt"],
   VEHICLE_SCHEDULE_CONFLICT: ["vehicleId", "scheduledAt", "scheduledEndAt"],
@@ -45,11 +45,12 @@ export const assignmentErrorFields: Record<string, TripFieldName[]> = {
 };
 
 export function changedTripFields(
-  trip: TripScheduleInput & { vehicle: { id:string }; driver: { id:string } },
+  trip: Omit<TripScheduleInput, "bookingId" | "vehicleId" | "driverId"> & { booking:{id:string}; vehicle: { id:string }; driver: { id:string } },
   values: TripScheduleInput & { driverId:string },
 ) {
   const patch: Partial<TripScheduleInput> = {};
-  for (const field of ["bookingReference", "passengerName", "pickupLocation", "destination"] as const) {
+  if (values.bookingId !== trip.booking.id) patch.bookingId = values.bookingId;
+  for (const field of ["pickupLocation", "destination"] as const) {
     if (values[field] !== trip[field]) patch[field] = values[field];
   }
   if (Date.parse(values.scheduledAt) !== Date.parse(trip.scheduledAt)) patch.scheduledAt = values.scheduledAt;

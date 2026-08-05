@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { AdminDriver, DriverLeave, DriverSource, LifecycleStatus, Vendor } from "@/lib/contracts";
 import { ApiError, apiRequest, errorMessage, getPaginated } from "@/lib/api";
 import { formatDateTime, lifecycleStatus } from "@/lib/status";
-import { assignmentSettingsFromForm, driverMutationFromForm, validateAssignmentSettings } from "@/lib/driver-scheduling";
+import { assignmentSettingsFromForm, driverMutationFromForm, validateAssignmentSettings, validateDriverLicense } from "@/lib/driver-scheduling";
 import { listQuery, pageAfterRemovingLastItem, totalPages } from "@/lib/pagination";
 import { EmptyState, ErrorAlert, LoadingCards, StatusBadge } from "./ui";
 import { Modal } from "./modal";
@@ -57,7 +57,7 @@ export function AdminDrivers() {
     if (!dialog || busy) return;
     const data = new FormData(event.currentTarget);
     const settings = assignmentSettingsFromForm(data);
-    const validation = validateAssignmentSettings(settings);
+    const validation = validateAssignmentSettings(settings) || validateDriverLicense(data);
     if (validation) { setDialogError({ message: validation }); return; }
     const body = driverMutationFromForm(data, source, dialog.mode === "create");
     setBusy(true); setDialogError(null);
@@ -131,6 +131,13 @@ export function DriverForm({ dialog, vendors, source, setSource, busy, error, on
       <div className="grid-2"><Field name="dutyHours" label="Daily duty hours" type="number" min={0} max={24} defaultValue={Math.floor(duty / 60)} /><Field name="dutyMinutes" label="Additional minutes" type="number" min={0} max={59} defaultValue={duty % 60} /></div>
       <p className="trip-meta">{formatDuty(duty)} per day (1 minute to 24 hours).</p>
     </fieldset>
+    <fieldset className="settings-group"><legend>License details <small>(optional)</small></legend>
+      <div className="grid-2"><Field name="licenseNumber" label="License number" required={false} maxLength={100} defaultValue={driver?.license?.licenseNumber||""}/><Field name="licenseIssuingAuthority" label="Issuing authority" required={false} maxLength={200} defaultValue={driver?.license?.issuingAuthority||""}/></div>
+      <div className="grid-2"><Field name="licenseIssuedOn" label="Issue date" type="date" required={false} defaultValue={driver?.license?.issuedOn||""}/><Field name="licenseExpiresOn" label="Expiry date" type="date" required={false} defaultValue={driver?.license?.expiresOn||""}/></div>
+      <Field name="licenseCategories" label="Categories (comma-separated)" required={false} maxLength={300} defaultValue={driver?.license?.categories?.join(", ")||""}/>
+      <Field name="licenseVerifiedAt" label="Verified at" type="datetime-local" required={false} defaultValue={driver?.license?.verifiedAt?toLocalDateTime(driver.license.verifiedAt):""}/>
+      <p className="trip-meta">Leave every field empty when license information is not yet available.</p>
+    </fieldset>
     {driver && <LeavePeriods driver={driver} />}
     <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={busy} onClick={onCancel}>Cancel</button><button className="button" disabled={busy}>{busy ? "Saving…" : driver ? "Save settings" : "Create driver"}</button></div>
   </form>;
@@ -194,6 +201,7 @@ function formatDuty(minutes: number) {
   const hours = Math.floor(minutes / 60); const remaining = minutes % 60;
   return [hours ? `${hours} hour${hours === 1 ? "" : "s"}` : "", remaining ? `${remaining} minute${remaining === 1 ? "" : "s"}` : ""].filter(Boolean).join(" ") || "0 minutes";
 }
+function toLocalDateTime(value:string) { const date=new Date(value); return new Date(date.getTime()-date.getTimezoneOffset()*60_000).toISOString().slice(0,16); }
 function Field({ name, label, type = "text", required = true, ...rest }: { name:string; label:string; type?:string; required?:boolean; maxLength?:number; minLength?:number; min?:number; max?:number; defaultValue?:string|number; list?:string }) {
   return <div className="field"><label htmlFor={name}>{label}</label><input className="input" id={name} name={name} type={type} required={required} {...rest} /></div>;
 }

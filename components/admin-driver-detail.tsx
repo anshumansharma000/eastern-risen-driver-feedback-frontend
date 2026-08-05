@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { AdminDriver, DriverSource, LifecycleStatus, Vendor } from "@/lib/contracts";
 import { getAdminDriver, passwordValidation, resetAdminDriverPassword } from "@/lib/account-api";
 import { ApiError, apiRequest, errorMessage, getPaginated } from "@/lib/api";
-import { driverMutationFromForm, validateAssignmentSettings, assignmentSettingsFromForm } from "@/lib/driver-scheduling";
+import { driverMutationFromForm, validateAssignmentSettings, assignmentSettingsFromForm, validateDriverLicense } from "@/lib/driver-scheduling";
 import { formatDateTime, lifecycleStatus } from "@/lib/status";
 import { DriverForm } from "./admin-drivers";
 import { Modal } from "./modal";
@@ -53,7 +53,7 @@ export function AdminDriverDetail({ driverId }: { driverId: string }) {
     event.preventDefault();
     if (!driver || busy) return;
     const data = new FormData(event.currentTarget);
-    const validation = validateAssignmentSettings(assignmentSettingsFromForm(data));
+    const validation = validateAssignmentSettings(assignmentSettingsFromForm(data)) || validateDriverLicense(data);
     if (validation) { setDialogError({ message: validation }); return; }
     setBusy(true); setDialogError(null);
     try {
@@ -116,6 +116,9 @@ export function AdminDriverDetail({ driverId }: { driverId: string }) {
       <DetailCard title="Operations">
         <Row label="Lifecycle" value={state.label} /><Row label="Assignment" value={driver.assignmentEnabled ? "Enabled" : "Disabled"} /><Row label="Source" value={driver.sourceType === "AGENCY" ? "Agency" : `Outsourced · ${driver.vendorName || "Vendor not listed"}`} /><Row label="Shift" value={driver.shiftStartTime && driver.shiftEndTime ? `${driver.shiftStartTime}–${driver.shiftEndTime}` : "No shift restriction"} /><Row label="Timezone" value={driver.timeZone} /><Row label="Daily duty limit" value={formatDuty(driver.maxDailyDutyMinutes)} />
       </DetailCard>
+      <DetailCard title="License details">
+        {driver.license ? <><Row label="License number" value={driver.license.licenseNumber||"Not provided"}/><Row label="Issue date" value={driver.license.issuedOn||"Not provided"}/><Row label="Expiry date" value={driver.license.expiresOn||"Not provided"}/><Row label="Issuing authority" value={driver.license.issuingAuthority||"Not provided"}/><Row label="Categories" value={driver.license.categories?.join(", ")||"Not provided"}/><Row label="Verification" value={driver.license.verifiedAt?`Verified ${formatDateTime(driver.license.verifiedAt,driver.timeZone)}`:"Not verified"}/>{driver.license.expiresOn&&<LicenseExpiry expiresOn={driver.license.expiresOn}/>}</>:<p className="trip-meta">No license details supplied.</p>}
+      </DetailCard>
       <DetailCard title="Lifecycle timestamps">
         <Row label="Created" value={formatDateTime(driver.createdAt, driver.timeZone)} /><Row label="Updated" value={formatDateTime(driver.updatedAt, driver.timeZone)} /><Row label="Archived" value={driver.archivedAt ? formatDateTime(driver.archivedAt, driver.timeZone) : "Not archived"} />
       </DetailCard>
@@ -159,5 +162,6 @@ function ResetPasswordDialog({ driver, newPassword, confirmation, busy, error, o
 
 function DetailCard({ title, children }: { title: string; children: React.ReactNode }) { return <section className="card profile-card"><h2>{title}</h2><dl className="definition-list">{children}</dl></section>; }
 function Row({ label, value }: { label: string; value: string }) { return <div><dt>{label}</dt><dd>{value}</dd></div>; }
+function LicenseExpiry({expiresOn}:{expiresOn:string}) { const today=new Date();today.setHours(0,0,0,0);const expiry=new Date(`${expiresOn}T00:00:00`);const days=Math.ceil((expiry.getTime()-today.getTime())/86_400_000);const expired=days<0;const soon=!expired&&days<=60;return <div><dt>Validity</dt><dd><StatusBadge label={expired?"Expired":soon?`Expires in ${days} days`:"Valid"} tone={expired?"danger":soon?"warning":"success"}/></dd></div> }
 function notice(cause: unknown) { return { message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined }; }
 function formatDuty(minutes: number) { const hours = Math.floor(minutes / 60); const rest = minutes % 60; return [hours && `${hours} hour${hours === 1 ? "" : "s"}`, rest && `${rest} minute${rest === 1 ? "" : "s"}`].filter(Boolean).join(" "); }

@@ -30,6 +30,16 @@ export function validateAssignmentSettings(body: DriverAssignmentSettings) {
 }
 
 export function driverMutationFromForm(data: FormData, sourceType: "AGENCY" | "OUTSOURCED", includeAccountFields = false) {
+  const categories = String(data.get("licenseCategories") || "").split(",").map((value) => value.trim()).filter(Boolean);
+  const license = {
+    licenseNumber: String(data.get("licenseNumber") || "").trim() || null,
+    issuedOn: String(data.get("licenseIssuedOn") || "") || null,
+    expiresOn: String(data.get("licenseExpiresOn") || "") || null,
+    issuingAuthority: String(data.get("licenseIssuingAuthority") || "").trim() || null,
+    categories: categories.length ? categories : null,
+    verifiedAt: (() => { const value=String(data.get("licenseVerifiedAt")||""); if(!value)return null; const date=new Date(value); return Number.isNaN(date.getTime())?null:date.toISOString(); })(),
+  };
+  const hasLicense = Object.values(license).some((value) => Array.isArray(value) ? value.length > 0 : value !== null);
   const common = {
     displayName: String(data.get("displayName") || "").trim(),
     driverCode: String(data.get("driverCode") || "").trim(),
@@ -37,7 +47,15 @@ export function driverMutationFromForm(data: FormData, sourceType: "AGENCY" | "O
     sourceType,
     vendorId: sourceType === "OUTSOURCED" ? String(data.get("vendorId") || "") : null,
     ...assignmentSettingsFromForm(data),
+    ...(hasLicense ? { license } : { license: null }),
   };
   const withEmail = { ...common, email: String(data.get("email") || "").trim() };
   return includeAccountFields ? { ...withEmail, password: String(data.get("password") || "") } : withEmail;
+}
+
+export function validateDriverLicense(data: FormData) {
+  const issuedOn = String(data.get("licenseIssuedOn") || "");
+  const expiresOn = String(data.get("licenseExpiresOn") || "");
+  if (issuedOn && expiresOn && expiresOn <= issuedOn) return "License expiry date must be after the issue date.";
+  return null;
 }

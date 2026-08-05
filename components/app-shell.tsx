@@ -26,6 +26,7 @@ const driverPrimaryNav = [
 ] as const;
 const adminNav = [
   ["/admin", "Overview"],
+  ["/admin/bookings", "Bookings"],
   ["/admin/trips", "Trips"],
   ["/admin/drivers", "Drivers"],
   ["/admin/vendors", "Vendors"],
