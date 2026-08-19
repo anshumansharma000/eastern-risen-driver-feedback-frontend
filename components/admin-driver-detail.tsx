@@ -11,6 +11,7 @@ import { DriverForm } from "./admin-drivers";
 import { Modal } from "./modal";
 import { PasswordField } from "./password-field";
 import { EmptyState, ErrorAlert, LoadingCards, StatusBadge } from "./ui";
+import { phoneError } from "@/lib/phone";
 
 type Notice = { message: string; requestId?: string } | null;
 
@@ -20,6 +21,7 @@ export function AdminDriverDetail({ driverId }: { driverId: string }) {
   const [source, setSource] = useState<DriverSource>("AGENCY");
   const [error, setError] = useState<Notice>(null);
   const [dialogError, setDialogError] = useState<Notice>(null);
+  const [phoneFieldError, setPhoneFieldError] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -53,7 +55,9 @@ export function AdminDriverDetail({ driverId }: { driverId: string }) {
     event.preventDefault();
     if (!driver || busy) return;
     const data = new FormData(event.currentTarget);
-    const validation = validateAssignmentSettings(assignmentSettingsFromForm(data)) || validateDriverLicense(data);
+    const invalidPhone = phoneError(String(data.get("phone") || ""), true);
+    setPhoneFieldError(invalidPhone || "");
+    const validation = invalidPhone || validateAssignmentSettings(assignmentSettingsFromForm(data)) || validateDriverLicense(data);
     if (validation) { setDialogError({ message: validation }); return; }
     setBusy(true); setDialogError(null);
     try {
@@ -103,7 +107,7 @@ export function AdminDriverDetail({ driverId }: { driverId: string }) {
     <Link className="text-link feedback-back" href="/admin/drivers">← Back to drivers</Link>
     <div className="page-header"><div><p className="eyebrow">Driver account</p><h1>{driver.displayName}</h1><p>{driver.driverCode} · {driver.email}</p></div><StatusBadge {...state} /></div>
     <div className="toolbar detail-actions">
-      {driver.status !== "ARCHIVED" && <><button className="button button-secondary" disabled={busy} onClick={() => { setDialogError(null); setEditing(true); }}>Manage settings and leave</button><button className="button button-danger" disabled={busy} onClick={() => { setResetComplete(false); setResetError(null); setResetOpen(true); }}>Reset driver password</button></>}
+      {driver.status !== "ARCHIVED" && <><button className="button button-secondary" disabled={busy} onClick={() => { setDialogError(null); setPhoneFieldError(""); setEditing(true); }}>Manage settings and leave</button><button className="button button-danger" disabled={busy} onClick={() => { setResetComplete(false); setResetError(null); setResetOpen(true); }}>Reset driver password</button></>}
       {driver.status === "ACTIVE" && <button className="button button-secondary" disabled={busy} onClick={() => void changeStatus("DEACTIVATED")}>Deactivate</button>}
       {driver.status === "DEACTIVATED" && <><button className="button button-secondary" disabled={busy} onClick={() => void changeStatus("ACTIVE")}>Activate</button><button className="button button-secondary" disabled={busy} onClick={() => void changeStatus("ARCHIVED")}>Archive</button></>}
     </div>
@@ -123,7 +127,7 @@ export function AdminDriverDetail({ driverId }: { driverId: string }) {
         <Row label="Created" value={formatDateTime(driver.createdAt, driver.timeZone)} /><Row label="Updated" value={formatDateTime(driver.updatedAt, driver.timeZone)} /><Row label="Archived" value={driver.archivedAt ? formatDateTime(driver.archivedAt, driver.timeZone) : "Not archived"} />
       </DetailCard>
     </div>
-    {editing && <Modal onDismiss={() => !busy && setEditing(false)}><DriverForm dialog={{ mode: "edit", driver }} vendors={vendors} source={source} setSource={setSource} busy={busy} error={dialogError} onSubmit={save} onCancel={() => setEditing(false)} /></Modal>}
+    {editing && <Modal onDismiss={() => !busy && setEditing(false)}><DriverForm dialog={{ mode: "edit", driver }} vendors={vendors} source={source} setSource={setSource} busy={busy} error={dialogError} phoneError={phoneFieldError} onSubmit={save} onCancel={() => setEditing(false)} /></Modal>}
     {resetOpen && <ResetPasswordDialog driver={driver} newPassword={newPassword} confirmation={confirmation} busy={resetBusy} error={resetError} onNewPassword={setNewPassword} onConfirmation={setConfirmation} onCancel={closeReset} onSubmit={resetPassword} />}
   </>;
 }

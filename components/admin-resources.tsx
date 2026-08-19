@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import type { LifecycleStatus, Vehicle, Vendor } from "@/lib/contracts";
+import type { CreateVendorRequest, LifecycleStatus, Vehicle, Vendor } from "@/lib/contracts";
 import { ApiError, apiRequest, errorMessage } from "@/lib/api";
 import { listQuery, pageAfterRemovingLastItem, totalPages } from "@/lib/pagination";
 import { lifecycleStatus } from "@/lib/status";
@@ -9,6 +9,8 @@ import { EmptyState, ErrorAlert, LoadingCards, StatusBadge } from "./ui";
 import { Modal } from "./modal";
 import { PaginationControl, useListSearchParams, usePaginatedList } from "./pagination";
 import { AdminDrivers } from "./admin-drivers";
+import { PhoneInput } from "./phone-input";
+import { optionalPhoneValue, phoneError } from "@/lib/phone";
 
 type Resource = "vendors" | "vehicles" | "drivers";
 type DirectoryResource = Exclude<Resource, "drivers">;
@@ -37,6 +39,7 @@ function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [mutationError, setMutationError] = useState<{ message: string; requestId?: string } | null>(null);
+  const [phoneFieldError, setPhoneFieldError] = useState("");
 
   useEffect(() => {
     if (!list.pagination) return;
@@ -48,8 +51,11 @@ function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
     event.preventDefault();
     setBusy(true); setMutationError(null);
     const data = new FormData(event.currentTarget);
+    const invalidPhone = resource === "vendors" ? phoneError(String(data.get("contactPhone") || ""), true) : null;
+    setPhoneFieldError(invalidPhone || "");
+    if (invalidPhone) { setBusy(false); return; }
     const body = resource === "vendors"
-      ? { name: data.get("name"), contactName: data.get("contactName") || undefined, contactEmail: data.get("contactEmail") || undefined, contactPhone: data.get("contactPhone") || undefined }
+      ? { name: String(data.get("name") || "").trim(), contactName: String(data.get("contactName") || "").trim() || null, contactEmail: String(data.get("contactEmail") || "").trim() || null, contactPhone: optionalPhoneValue(data.get("contactPhone")) } satisfies CreateVendorRequest
       : { displayName: data.get("displayName"), registrationNumber: data.get("registrationNumber") };
     try {
       await apiRequest(`/api/v1/admin/${resource}`, { method: "POST", body: JSON.stringify(body) });
@@ -85,7 +91,7 @@ function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
       return <div className="data-row" key={item.id}><span><strong>{primary(item)}</strong><small>{"contactEmail" in item ? item.contactEmail : "Fleet record"}</small></span><span>{secondary(item)}</span><StatusBadge label={state.label} tone={state.tone} /><span>{item.status === "ACTIVE" ? <button className="button button-secondary" disabled={busy} onClick={() => void changeStatus(item, "DEACTIVATED")}>Deactivate</button> : item.status === "DEACTIVATED" ? <><button className="button button-secondary" disabled={busy} onClick={() => void changeStatus(item, "ACTIVE")}>Activate</button> <button className="button button-secondary" disabled={busy} onClick={() => void changeStatus(item, "ARCHIVED")}>Archive</button></> : <span className="trip-meta">Read-only history</span>}</span></div>;
     })}</section>}
     {list.pagination && <PaginationControl {...list.pagination} page={search.page} loading={list.loading} onPageChange={(page) => search.setPage(page, totalPages(list.pagination!.total, list.pagination!.pageSize))} onPageSizeChange={search.setPageSize} />}
-    {showForm && <Modal onDismiss={() => setShowForm(false)}><form className="dialog" role="dialog" aria-modal="true" onSubmit={create}><span className="eyebrow">New {resource.slice(0, -1)}</span><h2>Add to operations</h2>{resource === "vendors" ? <><Field name="name" label="Vendor name" maxLength={200} /><Field name="contactName" label="Contact name" maxLength={200} required={false} /><Field name="contactEmail" label="Contact email" type="email" maxLength={320} required={false} /><Field name="contactPhone" label="Contact phone" maxLength={32} required={false} /></> : <><Field name="displayName" label="Vehicle display name" maxLength={200} /><Field name="registrationNumber" label="Registration number" maxLength={64} /></>}<div className="dialog-actions"><button type="button" className="button button-secondary" onClick={() => setShowForm(false)}>Cancel</button><button className="button" disabled={busy}>{busy ? "Saving…" : "Create record"}</button></div></form></Modal>}
+    {showForm && <Modal onDismiss={() => setShowForm(false)}><form className="dialog" role="dialog" aria-modal="true" onSubmit={create}><span className="eyebrow">New {resource.slice(0, -1)}</span><h2>Add to operations</h2>{resource === "vendors" ? <><Field name="name" label="Vendor name" maxLength={200} /><Field name="contactName" label="Contact name" maxLength={200} required={false} /><Field name="contactEmail" label="Contact email" type="email" maxLength={320} required={false} /><PhoneInput name="contactPhone" label="Contact phone" required={false} error={phoneFieldError} /></> : <><Field name="displayName" label="Vehicle display name" maxLength={200} /><Field name="registrationNumber" label="Registration number" maxLength={64} /></>}<div className="dialog-actions"><button type="button" className="button button-secondary" onClick={() => setShowForm(false)}>Cancel</button><button className="button" disabled={busy}>{busy ? "Saving…" : "Create record"}</button></div></form></Modal>}
   </>;
 }
 

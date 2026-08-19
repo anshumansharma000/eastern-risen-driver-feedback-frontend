@@ -1,3 +1,5 @@
+import type { E164Phone } from "./phone";
+
 export type AccountRole = "ADMIN" | "DRIVER";
 export type LifecycleStatus = "ACTIVE" | "DEACTIVATED" | "ARCHIVED";
 export type DriverSource = "AGENCY" | "OUTSOURCED";
@@ -24,7 +26,7 @@ export interface DriverProfile extends AccountProfile {
   role: "DRIVER";
   driverId: string;
   driverCode: string;
-  phone: string | null;
+  phone: E164Phone | null;
   sourceType: DriverSource;
   vendorId: string | null;
   vendorName: string | null;
@@ -35,7 +37,7 @@ export interface DriverProfile extends AccountProfile {
   maxDailyDutyMinutes: number;
 }
 export type UpdateAdminProfileRequest = Partial<Pick<AdminProfile, "displayName" | "email">>;
-export type UpdateDriverProfileRequest = Partial<Pick<DriverProfile, "displayName" | "email" | "phone">>;
+export type UpdateDriverProfileRequest = Partial<Pick<DriverProfile, "displayName" | "email">> & { phone?: E164Phone | null };
 export interface ChangePasswordRequest { currentPassword: string; newPassword: string }
 export interface AdminResetDriverPasswordRequest { newPassword: string }
 export interface Pagination { page: number; pageSize: number; total: number }
@@ -58,8 +60,9 @@ export interface DriverLicense {
   id: string; licenseNumber: string | null; issuedOn: string | null; expiresOn: string | null;
   issuingAuthority: string | null; categories: string[] | null; verifiedAt: string | null;
 }
-export interface Vendor { id:string; name:string; contactName:string|null; contactEmail:string|null; contactPhone:string|null; status:LifecycleStatus; createdAt:string; updatedAt:string; archivedAt:string|null }
-export interface AdminDriver extends DriverSummary { accountId:string; email:string; phone:string|null; status:LifecycleStatus; license:DriverLicense|null; createdAt:string; updatedAt:string; archivedAt:string|null }
+export interface Vendor { id:string; name:string; contactName:string|null; contactEmail:string|null; contactPhone:E164Phone|null; status:LifecycleStatus; createdAt:string; updatedAt:string; archivedAt:string|null }
+export interface AdminDriver extends DriverSummary { accountId:string; email:string; phone:E164Phone|null; status:LifecycleStatus; license:DriverLicense|null; createdAt:string; updatedAt:string; archivedAt:string|null }
+export interface CreateVendorRequest { name:string; contactName:string|null; contactEmail:string|null; contactPhone:E164Phone|null }
 export interface Vehicle extends VehicleSummary { status:LifecycleStatus; createdAt:string; updatedAt:string; archivedAt:string|null }
 export interface QuestionnaireSummary { id:string; name:string; status:"ACTIVE"|"ARCHIVED"; createdAt:string; updatedAt:string; archivedAt:string|null }
 export type QuestionnaireVersionStatus="DRAFT"|"ACTIVE"|"RETIRED"|"ARCHIVED";
@@ -72,10 +75,14 @@ export interface Trip {
   startedFeedbackAt: string | null; createdAt: string; updatedAt: string; archivedAt: string | null;
 }
 export interface Booking {
-  id:string; bookingReference:string; passengerName:string; startsAt:string; endsAt:string; status:BookingStatus;
+  id:string; bookingReference:string; passengerName:string; passengerPhone:E164Phone|null; startsAt:string; endsAt:string; status:BookingStatus;
   notes:string|null; tripCount:number; createdAt:string; updatedAt:string; archivedAt:string|null;
 }
 export interface BookingDetail extends Booking { trips:Trip[] }
+export interface CreateBookingRequest {
+  bookingReference:string; passengerName:string; passengerPhone:E164Phone; startsAt:string; endsAt:string; notes?:string|null;
+}
+export type UpdateBookingRequest = Partial<Pick<CreateBookingRequest,"bookingReference"|"passengerName"|"passengerPhone"|"startsAt"|"endsAt"|"notes">>;
 export interface DriverLeave { id:string; driverId:string; startsAt:string; endsAt:string; reason:string|null; createdAt:string }
 export interface HandoffTrip extends Trip { feedbackAccessToken: string; feedbackAccessTokenExpiresAt: string; feedbackLink: string }
 export interface FeedbackLink {
@@ -83,6 +90,10 @@ export interface FeedbackLink {
   feedbackLink: string;
   feedbackAccessTokenExpiresAt: string;
 }
+export interface AdminFeedbackShare extends FeedbackLink {
+  recipient: { name:string; phone:E164Phone|null };
+}
+export interface AdminFeedbackShareResponse { data:AdminFeedbackShare }
 export interface PassengerOption { valueKey: string; label: string; scoreValue: number | null; displayOrder: number }
 export interface PassengerQuestion {
   id: string; stableKey: string; prompt: string; questionType: QuestionType; category: QuestionCategory;
@@ -100,8 +111,8 @@ export type AnswerValue = number | string | boolean | string[];
 export interface FeedbackAnswer { questionId: string; value: AnswerValue }
 export interface SubmitFeedbackRequest {
   clientSubmissionId: string; questionnaireVersionId: string; questionnaireSnapshot: QuestionnaireSnapshot;
-  respondent: { name: string; phone: string; email: string; bookingReference: string; consentAccepted: true; consentedAt: string };
-  answers: FeedbackAnswer[]; submittedAt: string; submissionMode: "ONLINE" | "OFFLINE_SYNC";
+  respondent: { name: string; phone: E164Phone; email: string; bookingReference: string; consentAccepted: true; consentedAt: string };
+  answers: FeedbackAnswer[]; submittedAt: string; submissionMode: "ONLINE" | "OFFLINE_SYNC"; photoId?: string;
 }
 export interface SubmissionReceipt { id: string; clientSubmissionId: string; tripId: string; receivedAt: string; submissionMode: "ONLINE" | "OFFLINE_SYNC"; replayed: boolean; rewardEligible: boolean }
 
@@ -123,10 +134,12 @@ export interface AdminFeedbackAnswer {
 export interface FeedbackReviewEvent {
   id:string; action:"FLAG"|"UNFLAG"|"ARCHIVE"; reason:string|null; performedBy:{accountId:string;displayName:string}; createdAt:string;
 }
+export interface AdminFeedbackPhotoSummary { id:string; contentType:string; byteSize:number; attachedAt:string }
+export interface AdminFeedbackPhotoAccessResponse { data:{ id:string; url:string; expiresAt:string; contentType:string; byteSize:number } }
 export interface AdminFeedbackDetail extends AdminFeedbackSummary {
-  respondent:{name:string;phone:string;email:string;bookingReference:string};
+  respondent:{name:string;phone:E164Phone;email:string;bookingReference:string};
   trip:{pickupLocation:string;destination:string;scheduledAt:string;scheduledEndAt:string;vehicle:{registrationNumber:string;displayName:string}};
-  consentVersionId:string; consentedAt:string; questionnaireVersionId:string; answers:AdminFeedbackAnswer[]; reviewHistory:FeedbackReviewEvent[];
+  consentVersionId:string; consentedAt:string; questionnaireVersionId:string; answers:AdminFeedbackAnswer[]; reviewHistory:FeedbackReviewEvent[]; photo:AdminFeedbackPhotoSummary|null;
 }
 export interface ScoreSummary { averageScore:number|null; responseCount:number; answerCount:number }
 export interface AnalyticsMeta { timezone:string; dateBasis:"SUBMITTED_AT"; month:string|null }

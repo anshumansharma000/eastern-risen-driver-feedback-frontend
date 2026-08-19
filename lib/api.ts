@@ -68,6 +68,8 @@ const friendly: Record<string, string> = {
   AUTHENTICATION_FAILED: "Those details did not match an active account.", AUTHENTICATION_REQUIRED: "Your session has ended. Please sign in again.",
   FEEDBACK_HANDOFF_INVALID: "This feedback link is invalid, expired, or has already been used.",
   FEEDBACK_HANDOFF_UNAVAILABLE: "Feedback has not started for this trip or was already submitted.",
+  ACTIVE_QUESTIONNAIRE_NOT_FOUND: "No active feedback questionnaire is available. Activate one before sharing.",
+  ACTIVE_CONSENT_NOT_FOUND: "No active consent notice is available. Activate one before sharing.",
   BOOKING_REFERENCE_MISMATCH: "The booking reference does not match this trip.", FEEDBACK_ANSWERS_INVALID: "One or more answers need your attention.",
   RATE_LIMIT_EXCEEDED: "Too many attempts. Please wait a moment and try again.", NETWORK_UNAVAILABLE: "We cannot reach the service right now.",
   TRIP_CANNOT_BE_SCHEDULED_IN_PAST: "The trip must be scheduled in the future.",

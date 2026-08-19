@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import Link from "next/link";
+import { useRef, useState, useSyncExternalStore } from "react";
 import type { FeedbackLink } from "@/lib/contracts";
 import { ApiError, apiRequest, errorMessage } from "@/lib/api";
 import { copyFeedbackLink, feedbackLinkPath, formatFeedbackLinkExpiry, isFeedbackLinkExpired, shareFeedbackLink, type FeedbackLinkAudience } from "@/lib/feedback-link";
+import { MISSING_PASSENGER_PHONE_MESSAGE, openAdminFeedbackOnWhatsApp } from "@/lib/whatsapp-feedback";
 import { Modal } from "./modal";
 import { ErrorAlert } from "./ui";
 
@@ -39,6 +41,43 @@ export function ShareFeedbackLinkAction({ tripId, audience }: { tripId: string; 
     <button className="button" onClick={show}>Share feedback link</button>
     {open && <FeedbackLinkDialog details={details} loading={loading} error={error} onRetry={() => void load()} onDismiss={() => setOpen(false)} />}
   </>;
+}
+
+export function ShareFeedbackOnWhatsAppAction({ tripId, passengerPhone, editHref }: { tripId: string; passengerPhone: string | null; editHref: string }) {
+  const requestInFlight = useRef(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Notice>(null);
+  const [opened, setOpened] = useState(false);
+  const missing = !passengerPhone;
+  const helpId = `whatsapp-share-help-${tripId}`;
+
+  async function share() {
+    if (requestInFlight.current || missing) return;
+    requestInFlight.current = true;
+    setLoading(true); setError(null); setOpened(false);
+    try {
+      const result = await openAdminFeedbackOnWhatsApp(tripId);
+      if (result === "missing-phone") {
+        setError({ message: MISSING_PASSENGER_PHONE_MESSAGE });
+        return;
+      }
+      setOpened(true);
+    } catch (cause) {
+      setError(notice(cause, "admin"));
+    } finally {
+      requestInFlight.current = false;
+      setLoading(false);
+    }
+  }
+
+  return <div className="whatsapp-share">
+    <button className="button button-secondary" type="button" disabled={missing || loading} aria-describedby={missing ? helpId : undefined} aria-label="Share feedback on WhatsApp" onClick={() => void share()}>
+      {loading ? "Opening WhatsApp…" : "Share feedback on WhatsApp"}
+    </button>
+    {missing && <small id={helpId}>{MISSING_PASSENGER_PHONE_MESSAGE} <Link className="text-link" href={editHref}>Add phone number</Link></small>}
+    {error && <ErrorAlert {...error} />}
+    {opened && !error && <small className="share-link-status" role="status">WhatsApp opened. Review the message, then press Send in WhatsApp.</small>}
+  </div>;
 }
 
 export function FeedbackLinkDialog({ details, loading = false, error = null, onRetry, onDismiss }: {

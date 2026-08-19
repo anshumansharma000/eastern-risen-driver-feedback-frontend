@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { backoffDelay, canRetry } from "../lib/retry-policy.ts";
 import { assignmentErrorFields, changedTripFields, normalizeLocation, validateTripSchedule } from "../lib/trip-scheduling.ts";
 import { ApiError, apiRequest, errorMessage } from "../lib/api.ts";
-import { assignmentSettingsFromForm, dutyMinutes, validateAssignmentSettings, validateDriverLicense } from "../lib/driver-scheduling.ts";
+import { assignmentSettingsFromForm, driverMutationFromForm, dutyMinutes, validateAssignmentSettings, validateDriverLicense } from "../lib/driver-scheduling.ts";
 import { boundedPage, pageAfterRemovingLastItem, parsePaginatedResponse, totalPages, updateListSearch } from "../lib/pagination.ts";
 import { filterComboboxOptions } from "../lib/combobox.ts";
 import { adminAnalyticsPath, adminFeedbackPath, contractSearch, countLabel, driverPerformancePath, scoreLabel, validMonth } from "../lib/feedback-contract.ts";
@@ -22,6 +22,81 @@ import {
 } from "../lib/account-api.ts";
 import { formatTripRange } from "../lib/status.ts";
 import { copyFeedbackLink, feedbackLinkFromHandoff, feedbackLinkPath, formatFeedbackLinkExpiry, isFeedbackLinkExpired, passengerTokenFromSearch, shareFeedbackLink } from "../lib/feedback-link.ts";
+import { backendPassengerPhoneError, canonicalPassengerPhone, E164_ERROR, passengerPhoneError } from "../lib/booking-phone.ts";
+import { buildE164, E164_PATTERN, optionalPhoneValue, parsePhoneValue, PHONE_COUNTRIES, phoneError } from "../lib/phone.ts";
+import { buildWhatsAppFeedbackMessage, buildWhatsAppShareUrl, openAdminFeedbackOnWhatsApp } from "../lib/whatsapp-feedback.ts";
+import { omitPhotoForOffline, PHOTO_ACCEPT, PHOTO_PRELIMINARY_MAX_BYTES, uploadDirectToR2, uploadPassengerPhoto, validatePhotoFile } from "../lib/photo-upload.ts";
+
+test("passenger photo inputs distinguish camera capture from library selection", () => {
+  const passenger=readFileSync(new URL("../components/passenger-flow.tsx",import.meta.url),"utf8");
+  assert.equal(PHOTO_ACCEPT,"image/jpeg,image/png,image/webp");
+  assert.match(passenger,/id="camera-photo" type="file" accept=\{PHOTO_ACCEPT\} capture="environment"/);
+  assert.match(passenger,/id="library-photo" type="file" accept=\{PHOTO_ACCEPT\} onChange=\{choosePhoto\}/);
+  assert.doesNotMatch(passenger,/id="library-photo"[^>]*capture=/);
+});
+
+test("unsupported and preliminary oversized photos are rejected locally", () => {
+  assert.equal(validatePhotoFile({type:"image/jpeg",size:PHOTO_PRELIMINARY_MAX_BYTES}),null);
+  assert.equal(validatePhotoFile({type:"application/pdf",size:100})?.code,"PHOTO_INVALID");
+  assert.match(validatePhotoFile({type:"image/heic",size:100})?.message??"",/HEIC and HEIF photos are not supported/);
+  assert.match(validatePhotoFile({type:"",size:100,name:"camera.HEIF"})?.message??"",/HEIC and HEIF photos are not supported/);
+  assert.equal(validatePhotoFile({type:"image/png",size:PHOTO_PRELIMINARY_MAX_BYTES+1})?.code,"PHOTO_TOO_LARGE");
+});
+
+test("direct R2 upload uses only the presigned method and headers", async () => {
+  const file=new Blob(["image-bytes"],{type:"image/jpeg"});
+  const intent={id:"photo-1",uploadUrl:"https://private-upload.example/one",method:"PUT",headers:{"Content-Type":"image/jpeg"},expiresAt:"2099-01-01T00:00:00.000Z",maxBytes:1000};
+  let request;
+  await uploadDirectToR2(file,intent,async(url,init)=>{request={url,init};return new Response(null,{status:200})});
+  assert.equal(request.url,intent.uploadUrl);
+  assert.equal(request.init.method,"PUT");
+  assert.equal(request.init.headers,intent.headers);
+  assert.equal(request.init.body,file);
+  assert.equal(request.init.credentials,undefined);
+  assert.equal(new Headers(request.init.headers).get("authorization"),null);
+});
+
+test("photo completion follows a successful R2 upload and never follows a failed one", async () => {
+  const file=new Blob(["image-bytes"],{type:"image/jpeg"});
+  const calls=[];
+  const api=async(path,init)=>{calls.push({kind:"api",path,init});if(path.endsWith("photo-uploads"))return{data:{id:"photo-1",uploadUrl:"https://private-upload.example/one",method:"PUT",headers:{"Content-Type":"image/jpeg"},expiresAt:"2099-01-01T00:00:00.000Z",maxBytes:1000}};return{data:{id:"photo-1",status:"READY",contentType:"image/jpeg",byteSize:11,completedAt:"2030-01-01T00:00:00.000Z"}}};
+  await uploadPassengerPhoto(file,"feedback-token",{api,fetchImpl:async()=>{calls.push({kind:"r2"});return new Response(null,{status:200})}});
+  assert.deepEqual(calls.map(call=>call.kind),["api","r2","api"]);
+  assert.match(calls[2].path,/photo-uploads\/photo-1\/complete$/);
+  assert.equal(calls[0].init.passengerToken,"feedback-token");
+  assert.equal(calls[2].init.passengerToken,"feedback-token");
+  const failed=[];
+  await assert.rejects(()=>uploadPassengerPhoto(file,"feedback-token",{api:async(path)=>{failed.push(path);return{data:{id:"photo-2",uploadUrl:"https://private-upload.example/two",method:"PUT",headers:{"Content-Type":"image/jpeg"},expiresAt:"2099-01-01T00:00:00.000Z",maxBytes:1000}}},fetchImpl:async()=>new Response(null,{status:500})}));
+  assert.equal(failed.length,1);
+});
+
+test("offline feedback envelopes always omit photoId", () => {
+  const envelope={clientSubmissionId:"submission-1",photoId:"photo-1",submissionMode:"ONLINE"};
+  assert.deepEqual(omitPhotoForOffline(envelope),{clientSubmissionId:"submission-1",submissionMode:"ONLINE"});
+});
+
+test("passenger photo state prevents stale updates and releases previews", () => {
+  const passenger=readFileSync(new URL("../components/passenger-flow.tsx",import.meta.url),"utf8");
+  assert.match(passenger,/URL\.createObjectURL\(file\)/);
+  assert.match(passenger,/URL\.revokeObjectURL\(previewUrl\)/);
+  assert.match(passenger,/photoGeneration\.current\+=1/);
+  assert.match(passenger,/if\(generation!==photoGeneration\.current\)return/);
+  assert.match(passenger,/setPhoto\(\{kind:"empty"\}\)/);
+  assert.match(passenger,/omitPhotoForOffline\(envelope\)/g);
+  assert.match(passenger,/\.\.\.\(photoId\?\{photoId\}:\{\}\)/);
+});
+
+test("admin photo details are nullable and signed URLs are memory-only and refreshed", () => {
+  const admin=readFileSync(new URL("../components/admin-feedback-detail.tsx",import.meta.url),"utf8");
+  const contracts=readFileSync(new URL("../lib/contracts.ts",import.meta.url),"utf8");
+  assert.match(contracts,/photo:AdminFeedbackPhotoSummary\|null/);
+  assert.match(admin,/\{detail\.photo&&<section/);
+  assert.match(admin,/\/photo-url/);
+  assert.match(admin,/onClick=\{\(\)=>\{refreshedAfterFailure\.current=false;void viewPhoto\(true\)\}\}/);
+  assert.match(admin,/onError=\{\(\)=>void refreshFailedPhoto\(\)\}/);
+  assert.match(admin,/alt="Passenger-provided trip photo with the driver"/);
+  assert.doesNotMatch(admin,/localStorage|sessionStorage|console\./);
+});
 
 test("feedback-link endpoints preserve admin and assigned-driver authorization boundaries", () => {
   assert.equal(feedbackLinkPath("admin", "trip/one"), "/api/v1/admin/trips/trip%2Fone/feedback-link");
@@ -78,6 +153,139 @@ test("copy and native share receive the complete backend link and report cancell
   const cancellation = new Error("cancelled");
   cancellation.name = "AbortError";
   assert.equal(await shareFeedbackLink(link, async () => { throw cancellation; }), "cancelled");
+});
+
+test("booking phone validation requires canonical E.164 and recognizes backend field errors", () => {
+  assert.equal(canonicalPassengerPhone("  +919876543210  "), "+919876543210");
+  assert.equal(passengerPhoneError("+919876543210"), null);
+  for (const invalid of ["", "9876543210", "+91 98765 43210", "+91-98765-43210", "+0123456789", "+1234567", "+1234567890123456"]) {
+    assert.equal(passengerPhoneError(invalid), E164_ERROR);
+  }
+  assert.equal(backendPassengerPhoneError({ issues:[{ path:["body","passengerPhone"], message:"Phone must be E.164" }] }), "Phone must be E.164");
+  assert.equal(backendPassengerPhoneError({ errors:{ passengerPhone:["Invalid passenger phone"] } }), "Invalid passenger phone");
+});
+
+test("shared phone utilities normalize India and non-India input into exact E.164 payload values", () => {
+  assert.equal(PHONE_COUNTRIES[0].iso, "IN");
+  assert.equal(PHONE_COUNTRIES[0].callingCode, "91");
+  assert.ok(PHONE_COUNTRIES.some((country) => country.iso === "US"));
+  assert.equal(buildE164("91", "98765 43210"), "+919876543210");
+  assert.equal(buildE164("1", "(415) 555-2671"), "+14155552671");
+  assert.equal(buildE164("44", "20-7946-0958"), "+442079460958");
+  assert.match(buildE164("91", "98765 43210"), E164_PATTERN);
+  assert.match(buildE164("1", "(415) 555-2671"), E164_PATTERN);
+  assert.equal(phoneError("9876543210"), E164_ERROR);
+  assert.equal(phoneError("+14155552671"), null);
+  assert.equal(JSON.stringify({ passengerPhone: buildE164("91", "98765-43210") }), '{"passengerPhone":"+919876543210"}');
+});
+
+test("every editable frontend phone field uses the shared country-aware input", () => {
+  const sources = [
+    ["admin-bookings.tsx", "passengerPhone"],
+    ["admin-drivers.tsx", "phone"],
+    ["profile-page.tsx", "phone"],
+    ["admin-resources.tsx", "contactPhone"],
+    ["passenger-flow.tsx", "respondentPhone"],
+  ];
+  for (const [file, name] of sources) {
+    const source = readFileSync(new URL(`../components/${file}`, import.meta.url), "utf8");
+    assert.match(source, new RegExp(`<PhoneInput name="${name}"`));
+  }
+  const shared = readFileSync(new URL("../components/phone-input.tsx", import.meta.url), "utf8");
+  assert.match(shared, /name=\{`\$\{name\}Country`\}/);
+  assert.match(shared, /<input type="hidden" name=\{name\} value=\{submittedValue\}/);
+  assert.match(shared, /invalidLegacy \? PHONE_ERROR/);
+});
+
+test("optional phones preserve null while present values retain their leading plus", () => {
+  assert.equal(optionalPhoneValue(""), null);
+  assert.equal(optionalPhoneValue(null), null);
+  assert.equal(optionalPhoneValue("+971501234567"), "+971501234567");
+  const form = new FormData();
+  form.set("phone", "");
+  assert.equal(driverMutationFromForm(form, "AGENCY").phone, null);
+  form.set("phone", "+14155552671");
+  assert.equal(driverMutationFromForm(form, "AGENCY").phone, "+14155552671");
+});
+
+test("legacy phones are parsed only when an explicit international code is recoverable", () => {
+  const formatted = parsePhoneValue("+91 (98765) 43210");
+  assert.equal(formatted.country.iso, "IN");
+  assert.equal(formatted.nationalNumber, "9876543210");
+  assert.equal(formatted.canonical, "+919876543210");
+  assert.equal(formatted.invalidLegacy, false);
+
+  const unqualified = parsePhoneValue("98765 43210");
+  assert.equal(unqualified.country.iso, "IN");
+  assert.equal(unqualified.canonical, "98765 43210");
+  assert.equal(unqualified.invalidLegacy, true);
+
+  const malformed = parsePhoneValue("not-a-phone");
+  assert.equal(malformed.canonical, "not-a-phone");
+  assert.equal(malformed.invalidLegacy, true);
+});
+
+test("WhatsApp feedback message preserves exact link and line breaks and URL uses digits-only phone", () => {
+  const link = "https://feedback.example/feedback?token=opaque.value&next=%2Fquestions";
+  const message = buildWhatsAppFeedbackMessage("Asha Singh", link);
+  assert.equal(message, `Hi Asha Singh,\n\nThank you for travelling with Eastern Risen. We would appreciate your feedback about your recent trip.\n\nShare your feedback here: ${link}`);
+  const url = new URL(buildWhatsAppShareUrl("+91 98765-43210", message));
+  assert.equal(url.origin + url.pathname, "https://wa.me/919876543210");
+  assert.equal(url.searchParams.get("text"), message);
+});
+
+test("WhatsApp share opens before requesting, calls the admin endpoint once, and navigates the placeholder", async () => {
+  const events = [];
+  const placeholder = { closed:false, opener:{}, location:{ href:"" }, close(){ this.closed=true; } };
+  const result = await openAdminFeedbackOnWhatsApp("trip/one", {
+    open:() => { events.push("open"); return placeholder; },
+    request:async(path) => { events.push(`request:${path}`); return { data:{ tripId:"trip/one", feedbackLink:"https://feedback.example/feedback?token=opaque", feedbackAccessTokenExpiresAt:"2030-01-01T00:00:00Z", recipient:{ name:"Asha Singh", phone:"+919876543210" } } }; },
+    navigate:() => assert.fail("current-page fallback should not run when the placeholder is open"),
+  });
+  assert.equal(result, "opened");
+  assert.deepEqual(events, ["open", "request:/api/v1/admin/trips/trip%2Fone/feedback-link"]);
+  assert.equal(placeholder.opener, null);
+  assert.match(placeholder.location.href, /^https:\/\/wa\.me\/919876543210\?text=/);
+});
+
+test("WhatsApp share closes its placeholder on API failure or a missing recipient phone", async () => {
+  const failedWindow = { closed:false, opener:{}, location:{ href:"" }, close(){ this.closed=true; } };
+  await assert.rejects(() => openAdminFeedbackOnWhatsApp("trip-1", {
+    open:() => failedWindow,
+    request:async() => { throw new ApiError(503, "INTERNAL_SERVER_ERROR", "failed"); },
+  }));
+  assert.equal(failedWindow.closed, true);
+
+  const missingWindow = { closed:false, opener:{}, location:{ href:"" }, close(){ this.closed=true; } };
+  const missing = await openAdminFeedbackOnWhatsApp("trip-1", {
+    open:() => missingWindow,
+    request:async() => ({ data:{ tripId:"trip-1", feedbackLink:"https://feedback.example/private", feedbackAccessTokenExpiresAt:"2030-01-01T00:00:00Z", recipient:{ name:"Legacy Passenger", phone:null } } }),
+  });
+  assert.equal(missing, "missing-phone");
+  assert.equal(missingWindow.closed, true);
+});
+
+test("booking UI collects, submits, edits, and displays passenger phone with a missing-phone edit path", () => {
+  const bookings = readFileSync(new URL("../components/admin-bookings.tsx", import.meta.url), "utf8");
+  const phoneInput = readFileSync(new URL("../components/phone-input.tsx", import.meta.url), "utf8");
+  assert.match(bookings, /<PhoneInput name="passengerPhone" label="WhatsApp number"/);
+  assert.match(phoneInput, /id=\{`\$\{name\}-national`\} type="tel"/);
+  assert.match(bookings, /passengerPhone,startsAt,endsAt/);
+  assert.match(bookings, /defaultValue=\{booking\?\.passengerPhone\|\|""\}/);
+  assert.match(bookings, /passengerPhoneError\(passengerPhone\)/);
+  assert.match(bookings, /booking\.passengerPhone\|\|"Missing"/);
+  assert.match(bookings, /Legacy booking · <Link className="text-link" href=\{editHref\}>Add phone number/);
+  assert.match(bookings, /ShareFeedbackOnWhatsAppAction tripId=\{trip\.id\} passengerPhone=\{passengerPhone\} editHref=\{editHref\}/);
+});
+
+test("WhatsApp UI prevents duplicate requests, exposes standard errors, and never claims delivery", () => {
+  const share = readFileSync(new URL("../components/share-feedback-link.tsx", import.meta.url), "utf8");
+  assert.match(share, /if \(requestInFlight\.current \|\| missing\) return/);
+  assert.match(share, /requestInFlight\.current = true/);
+  assert.match(share, /disabled=\{missing \|\| loading\}/);
+  assert.match(share, /<ErrorAlert \{\.\.\.error\} \/>/);
+  assert.match(share, /WhatsApp opened\. Review the message, then press Send in WhatsApp\./);
+  assert.doesNotMatch(share, /message (?:sent|delivered)|successfully (?:sent|delivered)/i);
 });
 
 test("share and passenger UI preserve exact links, bearer tokens, and non-persistent handling", () => {

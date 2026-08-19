@@ -1,3 +1,5 @@
+import { optionalPhoneValue } from "./phone.ts";
+
 export type DriverAssignmentSettings = {
   assignmentEnabled: boolean;
   shiftStartTime: string | null;
@@ -43,7 +45,7 @@ export function driverMutationFromForm(data: FormData, sourceType: "AGENCY" | "O
   const common = {
     displayName: String(data.get("displayName") || "").trim(),
     driverCode: String(data.get("driverCode") || "").trim(),
-    phone: String(data.get("phone") || "").trim() || null,
+    phone: optionalPhoneValue(data.get("phone")),
     sourceType,
     vendorId: sourceType === "OUTSOURCED" ? String(data.get("vendorId") || "") : null,
     ...assignmentSettingsFromForm(data),

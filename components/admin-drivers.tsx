@@ -13,6 +13,8 @@ import { PasswordField } from "./password-field";
 import { PaginationControl, useListSearchParams, usePaginatedList } from "./pagination";
 import { Combobox, type ComboboxOption } from "./combobox";
 import { AlertDialog } from "./alert-dialog";
+import { PhoneInput } from "./phone-input";
+import { phoneError } from "@/lib/phone";
 
 export type DriverDialog = { mode: "create" } | { mode: "edit"; driver: AdminDriver };
 type FormError = { message: string; requestId?: string } | null;
@@ -31,6 +33,7 @@ export function AdminDrivers() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<FormError>(null);
   const [dialogError, setDialogError] = useState<FormError>(null);
+  const [phoneFieldError, setPhoneFieldError] = useState("");
 
   const loadVendors = useCallback(async () => {
     setError(null);
@@ -49,7 +52,7 @@ export function AdminDrivers() {
   }, [list.pagination, search.page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function open(next: DriverDialog) {
-    setDialogError(null); setSource(next.mode === "edit" ? next.driver.sourceType : "AGENCY"); setDialog(next);
+    setDialogError(null); setPhoneFieldError(""); setSource(next.mode === "edit" ? next.driver.sourceType : "AGENCY"); setDialog(next);
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -57,7 +60,9 @@ export function AdminDrivers() {
     if (!dialog || busy) return;
     const data = new FormData(event.currentTarget);
     const settings = assignmentSettingsFromForm(data);
-    const validation = validateAssignmentSettings(settings) || validateDriverLicense(data);
+    const invalidPhone = phoneError(String(data.get("phone") || ""), true);
+    setPhoneFieldError(invalidPhone || "");
+    const validation = invalidPhone || validateAssignmentSettings(settings) || validateDriverLicense(data);
     if (validation) { setDialogError({ message: validation }); return; }
     const body = driverMutationFromForm(data, source, dialog.mode === "create");
     setBusy(true); setDialogError(null);
@@ -95,12 +100,13 @@ export function AdminDrivers() {
       return <div className="data-row" key={driver.id}><span><Link className="text-link" href={`/admin/drivers/detail?driverId=${encodeURIComponent(driver.id)}`}><strong>{driver.displayName}</strong></Link><small>{driver.driverCode} · {driver.sourceType === "OUTSOURCED" ? driver.vendorName : "Agency driver"}</small></span><span><strong>{driver.assignmentEnabled ? shift : "Unavailable for assignment"}</strong><small>{driver.timeZone} · {formatDuty(driver.maxDailyDutyMinutes)}</small></span><span><StatusBadge label={driver.assignmentEnabled ? state.label : "Unavailable for assignment"} tone={driver.assignmentEnabled ? state.tone : "warning"} /></span><span className="trip-actions">{driver.status !== "ARCHIVED" && <button className="button button-secondary" disabled={busy} onClick={() => open({ mode: "edit", driver })}>Manage</button>}{driver.status === "ACTIVE" ? <button className="button button-secondary" disabled={busy} onClick={() => changeStatus(driver, "DEACTIVATED")}>Deactivate</button> : driver.status === "DEACTIVATED" ? <button className="button button-secondary" disabled={busy} onClick={() => changeStatus(driver, "ACTIVE")}>Activate</button> : null}</span></div>;
     })}</section>}
     {list.pagination && <PaginationControl {...list.pagination} page={search.page} loading={list.loading} onPageChange={(page) => search.setPage(page, totalPages(list.pagination!.total, list.pagination!.pageSize))} onPageSizeChange={search.setPageSize} />}
-    {dialog && <Modal onDismiss={() => !busy && setDialog(null)}><DriverForm dialog={dialog} vendors={vendors} source={source} setSource={setSource} busy={busy} error={dialogError} onSubmit={save} onCancel={() => setDialog(null)} /></Modal>}
+    {dialog && <Modal onDismiss={() => !busy && setDialog(null)}><DriverForm dialog={dialog} vendors={vendors} source={source} setSource={setSource} busy={busy} error={dialogError} phoneError={phoneFieldError} onSubmit={save} onCancel={() => setDialog(null)} /></Modal>}
   </>;
 }
 
-export function DriverForm({ dialog, vendors, source, setSource, busy, error, onSubmit, onCancel }: {
+export function DriverForm({ dialog, vendors, source, setSource, busy, error, phoneError: phoneFieldError, onSubmit, onCancel }: {
   dialog: DriverDialog; vendors: Vendor[]; source: DriverSource; setSource: (value: DriverSource) => void; busy: boolean; error: FormError;
+  phoneError: string;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void;
 }) {
   const driver = dialog.mode === "edit" ? dialog.driver : undefined;
@@ -120,7 +126,7 @@ export function DriverForm({ dialog, vendors, source, setSource, busy, error, on
     <Field name="displayName" label="Driver name" maxLength={200} defaultValue={driver?.displayName} />
     <Field name="email" label="Email" type="email" maxLength={320} defaultValue={driver?.email} />
     {dialog.mode === "create" && <PasswordField name="password" label="Temporary password" autoComplete="new-password" minLength={12} maxLength={128} />}
-    <div className="grid-2"><Field name="driverCode" label="Driver code" maxLength={64} defaultValue={driver?.driverCode} /><Field name="phone" label="Phone (optional)" maxLength={32} required={false} defaultValue={driver?.phone || ""} /></div>
+    <div className="grid-2"><Field name="driverCode" label="Driver code" maxLength={64} defaultValue={driver?.driverCode} /><PhoneInput name="phone" label="Phone" required={false} defaultValue={driver?.phone || ""} error={phoneFieldError} /></div>
     <div className="field"><label htmlFor="sourceType">Driver source</label><select className="select" id="sourceType" value={source} onChange={(event) => setSource(event.target.value as DriverSource)}><option value="AGENCY">Agency</option><option value="OUTSOURCED">Outsourced</option></select></div>
     {source === "OUTSOURCED" && <Combobox id="vendorId" name="vendorId" label="Vendor" options={vendorOptions} defaultValue={driver?.vendorId || ""} placeholder="Search by vendor or contact" emptyMessage="No vendors match that search" hint="Searches the active vendors currently loaded." required />}
     <fieldset className="settings-group"><legend>Assignment settings</legend>

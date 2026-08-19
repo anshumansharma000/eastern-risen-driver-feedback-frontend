@@ -14,10 +14,12 @@ import {
   type ProfileRole,
 } from "@/lib/account-api";
 import { ApiError, errorMessage, getData } from "@/lib/api";
-import type { AdminProfile, DriverProfile, Principal } from "@/lib/contracts";
+import type { AdminProfile, DriverProfile, Principal, UpdateDriverProfileRequest } from "@/lib/contracts";
 import { formatDateTime, lifecycleStatus } from "@/lib/status";
 import { ErrorAlert, LoadingCards, StatusBadge } from "./ui";
 import { PasswordField } from "./password-field";
+import { PhoneInput } from "./phone-input";
+import { phoneError, type E164Phone } from "@/lib/phone";
 
 type Profile = AdminProfile | DriverProfile;
 type Notice = { message: string; requestId?: string } | null;
@@ -52,18 +54,22 @@ export function ProfilePage({ role }: { role: ProfileRole }) {
     const data = new FormData(event.currentTarget);
     const draft = role === "admin"
       ? { displayName: String(data.get("displayName") || "").trim(), email: String(data.get("email") || "").trim() }
-      : { displayName: String(data.get("displayName") || "").trim(), email: String(data.get("email") || "").trim(), phone: String(data.get("phone") || "").trim() || null };
+      : { displayName: String(data.get("displayName") || "").trim(), email: String(data.get("email") || "").trim(), phone: (String(data.get("phone") || "").trim() || null) as E164Phone | null };
     const original = role === "admin"
       ? { displayName: profile.displayName, email: profile.email }
       : { displayName: profile.displayName, email: profile.email, phone: (profile as DriverProfile).phone };
     const patch = changedProfileFields(original, draft, Object.keys(draft) as (keyof typeof draft)[]);
     setSaved(false); setProfileError(null); setFieldErrors({});
+    if (role === "driver") {
+      const invalidPhone = phoneError(draft.phone, true);
+      if (invalidPhone) { setFieldErrors({ phone: invalidPhone }); return; }
+    }
     if (!Object.keys(patch).length) { setSaved(true); return; }
     setSavingProfile(true);
     try {
       const updated = role === "admin"
         ? await updateAdminProfile(patch)
-        : await updateDriverProfile(patch);
+        : await updateDriverProfile(patch as UpdateDriverProfileRequest);
       setProfile(updated);
       setSaved(true);
       await getData<{ user: Principal }>("/api/v1/auth/me");
@@ -123,7 +129,7 @@ export function ProfilePage({ role }: { role: ProfileRole }) {
         <form onSubmit={saveProfile} noValidate>
           <ProfileField name="displayName" label="Display name" defaultValue={profile.displayName} maxLength={200} error={fieldErrors.displayName} />
           <ProfileField name="email" label="Email address" type="email" defaultValue={profile.email} maxLength={320} error={fieldErrors.email} />
-          {role === "driver" && <ProfileField name="phone" label="Phone (optional)" defaultValue={(profile as DriverProfile).phone || ""} maxLength={32} required={false} error={fieldErrors.phone} />}
+          {role === "driver" && <PhoneInput name="phone" label="Phone" defaultValue={(profile as DriverProfile).phone || ""} required={false} error={fieldErrors.phone} />}
           <button className="button" disabled={savingProfile}>{savingProfile ? "Saving…" : "Save profile"}</button>
         </form>
       </section>
