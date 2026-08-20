@@ -23,9 +23,49 @@ import {
 import { formatTripRange } from "../lib/status.ts";
 import { copyFeedbackLink, feedbackLinkFromHandoff, feedbackLinkPath, formatFeedbackLinkExpiry, isFeedbackLinkExpired, passengerTokenFromSearch, shareFeedbackLink } from "../lib/feedback-link.ts";
 import { backendPassengerPhoneError, canonicalPassengerPhone, E164_ERROR, passengerPhoneError } from "../lib/booking-phone.ts";
+import { bookingMetadataErrors, bookingMetadataFromForm, FILE_NUMBER_MAX_LENGTH, optionalText, TOUR_NAME_MAX_LENGTH } from "../lib/booking-metadata.ts";
 import { buildE164, E164_PATTERN, optionalPhoneValue, parsePhoneValue, PHONE_COUNTRIES, phoneError } from "../lib/phone.ts";
-import { buildWhatsAppFeedbackMessage, buildWhatsAppShareUrl, openAdminFeedbackOnWhatsApp } from "../lib/whatsapp-feedback.ts";
+import { buildWhatsAppFeedbackMessage, buildWhatsAppShareUrl, openAdminFeedbackOnWhatsApp, openFeedbackOnWhatsApp } from "../lib/whatsapp-feedback.ts";
 import { omitPhotoForOffline, PHOTO_ACCEPT, PHOTO_PRELIMINARY_MAX_BYTES, uploadDirectToR2, uploadPassengerPhoto, validatePhotoFile } from "../lib/photo-upload.ts";
+import { feedbackPurposesFromForm, questionnairePurposes, sameFeedbackPurposes } from "../lib/feedback-sections.ts";
+
+test("feedback section selection preserves recommended defaults and canonical custom ordering", () => {
+  const recommended=new FormData();
+  recommended.set("feedbackSelectionMode","recommended");
+  assert.equal(feedbackPurposesFromForm(recommended),undefined);
+  const custom=new FormData();
+  custom.set("feedbackSelectionMode","custom");
+  custom.append("feedbackPurposes","TOUR_EXPERIENCE");
+  custom.append("feedbackPurposes","ARRIVAL_EXPERIENCE");
+  assert.deepEqual(feedbackPurposesFromForm(custom),["ARRIVAL_EXPERIENCE","TOUR_EXPERIENCE"]);
+  assert.deepEqual(questionnairePurposes,["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK","TOUR_EXPERIENCE"]);
+  assert.equal(sameFeedbackPurposes(["DRIVER_FEEDBACK","ARRIVAL_EXPERIENCE"],["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK"]),true);
+});
+
+test("passenger and admin feedback UIs use composite questionnaire sections", () => {
+  const passenger=readFileSync(new URL("../components/passenger-flow.tsx",import.meta.url),"utf8");
+  const detail=readFileSync(new URL("../components/admin-feedback-detail.tsx",import.meta.url),"utf8");
+  const trips=readFileSync(new URL("../components/admin-trips.tsx",import.meta.url),"utf8");
+  assert.match(passenger,/questionnaire\.sections\.flatMap/);
+  assert.doesNotMatch(passenger,/questionnaireVersionId:context\.questionnaire/);
+  assert.match(detail,/answer\.purpose/);
+  assert.match(trips,/Changing these sections invalidates any previously shared feedback link/);
+});
+
+test("admin feedback view keeps driver and company records and detail answers separate", () => {
+  const list=readFileSync(new URL("../components/admin-feedback-list.tsx",import.meta.url),"utf8");
+  const detail=readFileSync(new URL("../components/admin-feedback-detail.tsx",import.meta.url),"utf8");
+  const route=readFileSync(new URL("../components/query-detail-routes.tsx",import.meta.url),"utf8");
+  assert.match(list,/<option value="DRIVER">Driver feedback<\/option>/);
+  assert.match(list,/<option value="COMPANY">Company feedback<\/option>/);
+  assert.match(list,/&view=\$\{view\}/);
+  assert.match(list,/view==="DRIVER"\?"Driver":"Feedback sections"/);
+  assert.match(list,/view==="DRIVER"\?<><strong>\{item\.driver\.displayName\}/);
+  assert.match(list,/:<CompanyFeedbackSections\/>/);
+  assert.match(detail,/answer\.purpose==="DRIVER_FEEDBACK"/);
+  assert.match(detail,/feedback\/\$\{encodeURIComponent\(feedbackId\)\}\?view=\$\{view\}/);
+  assert.match(route,/requestedView === "COMPANY" \? "COMPANY" : "DRIVER"/);
+});
 
 test("passenger photo inputs distinguish camera capture from library selection", () => {
   const passenger=readFileSync(new URL("../components/passenger-flow.tsx",import.meta.url),"utf8");
@@ -165,6 +205,49 @@ test("booking phone validation requires canonical E.164 and recognizes backend f
   assert.equal(backendPassengerPhoneError({ errors:{ passengerPhone:["Invalid passenger phone"] } }), "Invalid passenger phone");
 });
 
+test("booking creation accepts omitted metadata and trims supplied metadata", () => {
+  const omitted = bookingMetadataFromForm(new FormData());
+  assert.deepEqual(omitted, { tourName:null, fileNumber:null });
+
+  const supplied = new FormData();
+  supplied.set("tourName", "  Himalayan Explorer  ");
+  supplied.set("fileNumber", "  FILE-204  ");
+  assert.deepEqual(bookingMetadataFromForm(supplied), {
+    tourName:"Himalayan Explorer",
+    fileNumber:"FILE-204",
+  });
+  assert.equal(optionalText("   "), null);
+});
+
+test("booking metadata validation enforces contract limits", () => {
+  assert.deepEqual(bookingMetadataErrors({
+    tourName:"T".repeat(TOUR_NAME_MAX_LENGTH),
+    fileNumber:"F".repeat(FILE_NUMBER_MAX_LENGTH),
+  }), {});
+  assert.deepEqual(bookingMetadataErrors({
+    tourName:"T".repeat(TOUR_NAME_MAX_LENGTH + 1),
+    fileNumber:"F".repeat(FILE_NUMBER_MAX_LENGTH + 1),
+  }), {
+    tourName:"Tour name must be 200 characters or fewer.",
+    fileNumber:"File number must be 100 characters or fewer.",
+  });
+});
+
+test("booking metadata updates can change one field and explicitly clear the other", () => {
+  const edit = new FormData();
+  edit.set("tourName", "  Updated tour  ");
+  edit.set("fileNumber", "   ");
+  const payload = bookingMetadataFromForm(edit);
+  assert.deepEqual(payload, { tourName:"Updated tour", fileNumber:null });
+  assert.equal(Object.hasOwn(payload, "fileNumber"), true);
+  assert.match(JSON.stringify(payload), /"fileNumber":null/);
+
+  const fileOnly = new FormData();
+  fileOnly.set("tourName", "");
+  fileOnly.set("fileNumber", "  FILE-205  ");
+  assert.deepEqual(bookingMetadataFromForm(fileOnly), { tourName:null, fileNumber:"FILE-205" });
+});
+
 test("shared phone utilities normalize India and non-India input into exact E.164 payload values", () => {
   assert.equal(PHONE_COUNTRIES[0].iso, "IN");
   assert.equal(PHONE_COUNTRIES[0].callingCode, "91");
@@ -265,6 +348,22 @@ test("WhatsApp share closes its placeholder on API failure or a missing recipien
   assert.equal(missingWindow.closed, true);
 });
 
+test("driver WhatsApp share uses the assigned-driver link and opens the recipient picker", async () => {
+  const placeholder = { closed:false, opener:{}, location:{ href:"" }, close(){ this.closed=true; } };
+  const result = await openFeedbackOnWhatsApp("trip/driver", "driver", "Asha Singh", {
+    open:() => placeholder,
+    request:async(path) => {
+      assert.equal(path, "/api/v1/driver/trips/trip%2Fdriver/feedback-link");
+      return { data:{ tripId:"trip/driver", feedbackLink:"https://feedback.example/private", feedbackAccessTokenExpiresAt:"2030-01-01T00:00:00Z" } };
+    },
+  });
+  const url = new URL(placeholder.location.href);
+  assert.equal(result, "opened");
+  assert.equal(url.origin + url.pathname, "https://wa.me/");
+  assert.match(url.searchParams.get("text"), /^Hi Asha Singh,/);
+  assert.match(url.searchParams.get("text"), /https:\/\/feedback\.example\/private$/);
+});
+
 test("booking UI collects, submits, edits, and displays passenger phone with a missing-phone edit path", () => {
   const bookings = readFileSync(new URL("../components/admin-bookings.tsx", import.meta.url), "utf8");
   const phoneInput = readFileSync(new URL("../components/phone-input.tsx", import.meta.url), "utf8");
@@ -278,6 +377,21 @@ test("booking UI collects, submits, edits, and displays passenger phone with a m
   assert.match(bookings, /ShareFeedbackOnWhatsAppAction tripId=\{trip\.id\} passengerPhone=\{passengerPhone\} editHref=\{editHref\}/);
 });
 
+test("booking metadata is typed, editable, submitted, listed, and rendered with missing values", () => {
+  const bookings = readFileSync(new URL("../components/admin-bookings.tsx", import.meta.url), "utf8");
+  const contracts = readFileSync(new URL("../lib/contracts.ts", import.meta.url), "utf8");
+  assert.match(contracts, /bookingReference:string; tourName:string\|null; fileNumber:string\|null;/);
+  assert.match(contracts, /bookingReference:string; tourName\?:string\|null; fileNumber\?:string\|null;/);
+  assert.match(contracts, /"bookingReference"\|"tourName"\|"fileNumber"\|"passengerName"/);
+  assert.match(bookings, /<Field name="tourName" label="Tour name" required=\{false\} maxLength=\{TOUR_NAME_MAX_LENGTH\} defaultValue=\{booking\?\.tourName\?\?""\} error=\{metadataError\.tourName\}/);
+  assert.match(bookings, /<Field name="fileNumber" label="File number" required=\{false\} maxLength=\{FILE_NUMBER_MAX_LENGTH\} defaultValue=\{booking\?\.fileNumber\?\?""\} error=\{metadataError\.fileNumber\}/);
+  assert.match(bookings, /const metadata=bookingMetadataFromForm\(data\)/);
+  assert.match(bookings, /bookingReference:String\(data\.get\("bookingReference"\)\|\|""\)\.trim\(\),\.\.\.metadata,passengerName:/);
+  assert.match(bookings, /booking\.tourName&&<small>Tour: \{booking\.tourName\}<\/small>/);
+  assert.match(bookings, /<span>Tour name<\/span><strong>\{booking\.tourName\|\|"—"\}<\/strong>/);
+  assert.match(bookings, /<span>File number<\/span><strong>\{booking\.fileNumber\|\|"—"\}<\/strong>/);
+});
+
 test("WhatsApp UI prevents duplicate requests, exposes standard errors, and never claims delivery", () => {
   const share = readFileSync(new URL("../components/share-feedback-link.tsx", import.meta.url), "utf8");
   assert.match(share, /if \(requestInFlight\.current \|\| missing\) return/);
@@ -285,6 +399,7 @@ test("WhatsApp UI prevents duplicate requests, exposes standard errors, and neve
   assert.match(share, /disabled=\{missing \|\| loading\}/);
   assert.match(share, /<ErrorAlert \{\.\.\.error\} \/>/);
   assert.match(share, /WhatsApp opened\. Review the message, then press Send in WhatsApp\./);
+  assert.match(share, /Share with <WhatsAppLogo \/>/);
   assert.doesNotMatch(share, /message (?:sent|delivered)|successfully (?:sent|delivered)/i);
 });
 

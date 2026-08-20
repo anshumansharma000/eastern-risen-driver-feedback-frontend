@@ -11,8 +11,8 @@ export const metadata: Metadata = {
   description:
     "Passenger-safe trip feedback and operations for Eastern Risen Expedition Pvt. Ltd.",
   icons: {
-    icon: `${basePath}/favicon.svg`,
-    shortcut: `${basePath}/favicon.svg`,
+    icon: `${basePath}/favicon.png`,
+    shortcut: `${basePath}/favicon.png`,
   },
 };
 

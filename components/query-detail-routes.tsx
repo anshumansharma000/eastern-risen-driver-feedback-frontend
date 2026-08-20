@@ -17,8 +17,10 @@ export function AdminDriverDetailRoute() {
 
 export function AdminFeedbackDetailRoute() {
   const feedbackId = useRequiredParameter("feedbackId");
+  const requestedView = useSearchParams().get("view");
+  const view = requestedView === "COMPANY" ? "COMPANY" : "DRIVER";
   return feedbackId
-    ? <main className="page"><AdminFeedbackDetailView feedbackId={feedbackId} /></main>
+    ? <main className="page"><AdminFeedbackDetailView feedbackId={feedbackId} view={view} /></main>
     : <MissingRecord title="Choose a feedback record" copy="Open a response from the feedback list to view this page." href="/admin/feedback" label="Back to feedback" />;
 }
 

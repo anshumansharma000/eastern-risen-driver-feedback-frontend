@@ -14,7 +14,7 @@ import { ErrorAlert, LoadingCards, StatusBadge } from "./ui";
 import { AlertDialog } from "./alert-dialog";
 
 const types: QuestionType[] = ["STAR_RATING", "EMOJI_RATING", "YES_NO", "SINGLE_CHOICE", "MULTIPLE_CHOICE", "TEXT"];
-const categories: QuestionCategory[] = ["OVERALL_EXPERIENCE", "DRIVING_SAFETY", "PUNCTUALITY", "CLEANLINESS", "PROFESSIONALISM", "VEHICLE_CONDITION", "CUSTOM"];
+const categories: QuestionCategory[] = ["OVERALL_EXPERIENCE", "DRIVING_SAFETY", "PUNCTUALITY", "CLEANLINESS", "PROFESSIONALISM", "VEHICLE_CONDITION", "ARRIVAL_EXPERIENCE", "TOUR_EXPERIENCE", "TOUR_COORDINATION", "CUSTOM"];
 const hasOptions = (type: QuestionType) => !["STAR_RATING", "TEXT"].includes(type);
 const isConfigurableChoice = (type: QuestionType) => ["SINGLE_CHOICE", "MULTIPLE_CHOICE"].includes(type);
 

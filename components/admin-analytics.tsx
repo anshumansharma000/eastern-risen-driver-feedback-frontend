@@ -8,7 +8,7 @@ import { adminAnalyticsPath, categoryLabel, contractSearch, countLabel, scoreLab
 import { useListSearchParams } from "./pagination";
 import { EmptyState, ErrorAlert, LoadingCards } from "./ui";
 
-const categories:QuestionCategory[]=["OVERALL_EXPERIENCE","DRIVING_SAFETY","PUNCTUALITY","CLEANLINESS","PROFESSIONALISM","VEHICLE_CONDITION","CUSTOM"];
+const categories:QuestionCategory[]=["OVERALL_EXPERIENCE","DRIVING_SAFETY","PUNCTUALITY","CLEANLINESS","PROFESSIONALISM","VEHICLE_CONDITION","ARRIVAL_EXPERIENCE","TOUR_EXPERIENCE","TOUR_COORDINATION","CUSTOM"];
 export function AdminAnalyticsView(){
   const search=useListSearchParams(); const [data,setData]=useState<AdminAnalytics|null>(null);const [loading,setLoading]=useState(false);const [error,setError]=useState<ApiError|null>(null);
   const filters=useMemo(()=>{const p=search.parameters;return {month:validMonth(p.get("month"))?p.get("month")!:undefined,driverId:p.get("driverId")||undefined,driverSource:(p.get("driverSource")||undefined) as "AGENCY"|"OUTSOURCED"|undefined,vendorId:p.get("vendorId")||undefined,category:(p.get("category")||undefined) as QuestionCategory|undefined}},[search.parameters]);

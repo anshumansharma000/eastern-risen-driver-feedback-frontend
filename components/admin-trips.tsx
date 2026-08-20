@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import type { AdminDriver, Booking, Trip, TripCreationSource, TripStatus, Vehicle } from "@/lib/contracts";
+import type { AdminDriver, Booking, QuestionnairePurpose, Trip, TripCreationSource, TripStatus, Vehicle } from "@/lib/contracts";
 import { ApiError, apiRequest, errorMessage, getPaginated } from "@/lib/api";
 import { formatTripRange, tripSource, tripStatus } from "@/lib/status";
 import { assignmentErrorFields, changedTripFields, validateTripSchedule, type TripFieldName, type TripScheduleInput, type TripValidationErrors } from "@/lib/trip-scheduling";
@@ -12,10 +12,11 @@ import { Modal } from "./modal";
 import { PaginationControl, useListSearchParams, usePaginatedList } from "./pagination";
 import { Combobox, type ComboboxOption } from "./combobox";
 import { AlertDialog } from "./alert-dialog";
-import { ShareFeedbackLinkAction } from "./share-feedback-link";
+import { ShareFeedbackLinkAction, ShareFeedbackOnWhatsAppAction } from "./share-feedback-link";
+import { feedbackPurposesFromForm, questionnairePurposeCopy, questionnairePurposes, sameFeedbackPurposes } from "@/lib/feedback-sections";
 
 type TripDialog = { mode: "create" } | { mode: "edit"; trip: Trip };
-type TripFormValues = TripScheduleInput & { driverId: string };
+type TripFormValues = TripScheduleInput & { driverId: string; feedbackPurposes?: QuestionnairePurpose[] };
 
 function toDateTimeLocal(isoDate: string) {
   const date = new Date(isoDate);
@@ -43,11 +44,16 @@ export function tripValuesFromForm(form: HTMLFormElement): TripFormValues {
     scheduledEndAt: localValueToIso(data.get("scheduledEndAt")),
     vehicleId: String(data.get("vehicleId") || ""),
     driverId: String(data.get("driverId") || ""),
+    feedbackPurposes: feedbackPurposesFromForm(data),
   };
 }
 
 export function changedTripValues(trip: Trip, values: TripFormValues) {
-  return changedTripFields(trip, values);
+  const patch: ReturnType<typeof changedTripFields> & { feedbackPurposes?:QuestionnairePurpose[] } = changedTripFields(trip, values);
+  if (values.feedbackPurposes && !sameFeedbackPurposes(trip.feedbackPurposes, values.feedbackPurposes)) {
+    patch.feedbackPurposes = values.feedbackPurposes;
+  }
+  return patch;
 }
 
 export function AdminTrips() {
@@ -152,7 +158,7 @@ export function AdminTrips() {
     {list.items?.length === 0 && !error && !list.error && <EmptyState title="No trips match this view">Create a journey or choose another feedback status.</EmptyState>}
     {list.items && list.items.length > 0 && <section className="trip-list" aria-busy={list.loading}>{list.items.map((trip) => {
       const state = tripStatus[trip.status];
-      return <article className="card trip-card" key={trip.id}><div className="trip-card-head"><div><span className="eyebrow">{tripSource[trip.creationSource]}</span><h3><Link className="text-link" href={`/admin/bookings/detail?bookingId=${encodeURIComponent(trip.booking.id)}`}>{trip.booking.bookingReference}</Link></h3><span className="trip-meta">{trip.booking.passengerName} · {formatTripRange(trip.scheduledAt, trip.scheduledEndAt)} · {trip.driver.displayName} · {trip.vehicle.displayName}</span></div><StatusBadge label={state.label} tone={state.tone} /></div><div className="route"><div className="route-line"><i className="route-dot" /><i className="route-dot" /></div><div className="route-points"><span><small>Pickup</small>{trip.pickupLocation}</span><span><small>Destination</small>{trip.destination}</span></div></div>{trip.status !== "ARCHIVED" && <div className="trip-actions">{(trip.status === "READY" || trip.status === "FEEDBACK_STARTED") && <ShareFeedbackLinkAction tripId={trip.id} audience="admin"/>}{trip.status === "READY" && <button className="button button-secondary" disabled={busy} onClick={() => openDialog({ mode: "edit", trip })}>Edit trip</button>}<button className="button button-secondary" disabled={busy} onClick={() => setPendingArchive(trip)}>Archive trip</button></div>}</article>;
+      return <article className="card trip-card" key={trip.id}><div className="trip-card-head"><div><span className="eyebrow">{tripSource[trip.creationSource]}</span><h3><Link className="text-link" href={`/admin/bookings/detail?bookingId=${encodeURIComponent(trip.booking.id)}`}>{trip.booking.bookingReference}</Link></h3><span className="trip-meta">{trip.booking.passengerName} · {formatTripRange(trip.scheduledAt, trip.scheduledEndAt)} · {trip.driver.displayName} · {trip.vehicle.displayName}</span><FeedbackPurposeBadges purposes={trip.feedbackPurposes}/></div><StatusBadge label={state.label} tone={state.tone} /></div><div className="route"><div className="route-line"><i className="route-dot" /><i className="route-dot" /></div><div className="route-points"><span><small>Pickup</small>{trip.pickupLocation}</span><span><small>Destination</small>{trip.destination}</span></div></div>{trip.status !== "ARCHIVED" && <div className="trip-actions">{(trip.status === "READY" || trip.status === "FEEDBACK_STARTED") && <ShareFeedbackOnWhatsAppAction tripId={trip.id} recipientName={trip.booking.passengerName} editHref={`/admin/bookings/edit?bookingId=${encodeURIComponent(trip.booking.id)}`}/>} {(trip.status === "READY" || trip.status === "FEEDBACK_STARTED") && <ShareFeedbackLinkAction tripId={trip.id} audience="admin"/>}{trip.status === "READY" && <button className="button button-secondary" disabled={busy} onClick={() => openDialog({ mode: "edit", trip })}>Edit trip</button>}<button className="button button-secondary" disabled={busy} onClick={() => setPendingArchive(trip)}>Archive trip</button></div>}</article>;
     })}</section>}
     {list.pagination && <PaginationControl {...list.pagination} page={search.page} loading={list.loading} onPageChange={(page) => search.setPage(page, totalPages(list.pagination!.total, list.pagination!.pageSize))} onPageSizeChange={search.setPageSize} />}
     {dialog && <Modal onDismiss={() => !busy && setDialog(null)}><TripForm mode={dialog.mode} trip={dialog.mode === "edit" ? dialog.trip : undefined} bookings={bookings} drivers={drivers} vehicles={vehicles} busy={busy} error={dialogError} fieldErrors={fieldErrors} onCancel={() => setDialog(null)} onSubmit={submit} /></Modal>}
@@ -207,8 +213,19 @@ function TripForm({ mode, trip, bookings, drivers, vehicles, busy, error, fieldE
     <ScheduleFields trip={trip} fieldErrors={fieldErrors} />
     <Combobox id="driverId" name="driverId" label="Active driver" options={driverOptions} defaultValue={trip?.driver.id} placeholder="Search by driver name or code" emptyMessage="No drivers match that search" error={fieldErrors.driverId} hint="Searches the active drivers currently loaded." required />
     <Combobox id="vehicleId" name="vehicleId" label="Active vehicle" options={vehicleOptions} defaultValue={trip?.vehicle.id} placeholder="Search by vehicle name or registration" emptyMessage="No vehicles match that search" error={fieldErrors.vehicleId} hint="Searches the active vehicles currently loaded." required />
+    <FeedbackSectionFields trip={trip}/>
     <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={busy} onClick={onCancel}>Cancel</button><button className="button" disabled={busy}>{busy ? "Saving…" : mode === "edit" ? "Save changes" : "Create trip"}</button></div>
   </form>;
+}
+
+export function FeedbackSectionFields({ trip }: { trip?:Trip }) {
+  const [recommended,setRecommended]=useState(!trip);
+  const [selected,setSelected]=useState<QuestionnairePurpose[]>(trip?.feedbackPurposes??["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK"]);
+  return <fieldset className="feedback-section-fieldset"><legend>Feedback sections</legend>{!trip&&<label className="check-row"><input type="checkbox" checked={recommended} onChange={(event)=>setRecommended(event.target.checked)}/><span>Use recommended selection<small>The backend adds Driver feedback and adds Arrival feedback when this booking has no arrival section yet.</small></span></label>}<input type="hidden" name="feedbackSelectionMode" value={recommended?"recommended":"custom"}/>{!recommended&&<div className="feedback-section-options">{questionnairePurposes.map((purpose)=><label className="check-row" key={purpose}><input type="checkbox" name="feedbackPurposes" value={purpose} checked={selected.includes(purpose)} onChange={(event)=>setSelected((current)=>event.target.checked?[...current,purpose]:current.filter((item)=>item!==purpose))}/><span>{questionnairePurposeCopy[purpose].label}<small>{questionnairePurposeCopy[purpose].help}</small></span></label>)}</div>}{recommended&&<p className="field-help">Choose custom selection to add Tour feedback or override the recommended sections.</p>}{trip&&<p className="field-help">Changing these sections invalidates any previously shared feedback link.</p>}</fieldset>;
+}
+
+export function FeedbackPurposeBadges({ purposes }:{purposes:readonly QuestionnairePurpose[]}) {
+  return <div className="feedback-purpose-badges">{purposes.map((purpose)=><span key={purpose}>{questionnairePurposeCopy[purpose].label}</span>)}</div>;
 }
 
 function defaultStartValue() {

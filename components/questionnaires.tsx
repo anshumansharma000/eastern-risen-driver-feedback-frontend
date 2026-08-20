@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import type { QuestionnaireSummary, QuestionnaireVersionSummary } from "@/lib/contracts";
+import { questionnairePurposeCopy, questionnairePurposes } from "@/lib/feedback-sections";
 import { ApiError, apiRequest, errorMessage } from "@/lib/api";
 import { listQuery, totalPages } from "@/lib/pagination";
 import { EmptyState, ErrorAlert, LoadingCards, StatusBadge } from "./ui";
@@ -32,7 +33,7 @@ export function Questionnaires() {
     setBusy(true); setError(null);
     const data = new FormData(event.currentTarget);
     try {
-      await apiRequest("/api/v1/admin/questionnaires", { method: "POST", body: JSON.stringify({ name: data.get("name") }) });
+      await apiRequest("/api/v1/admin/questionnaires", { method: "POST", body: JSON.stringify({ name: data.get("name"), purpose: data.get("purpose") }) });
       setShow(false);
       await list.refetch();
     } catch (cause) {
@@ -46,9 +47,9 @@ export function Questionnaires() {
     {shownError && <ErrorAlert message={shownError.message} requestId={shownError.requestId} />}
     {list.items === null && !list.error && <LoadingCards />}
     {list.items?.length === 0 && !shownError && <EmptyState title="No questionnaires yet">Create a questionnaire and its first draft, then add active questions before publishing.</EmptyState>}
-    {list.items && list.items.length > 0 && <div className="stack" aria-busy={list.loading}>{list.items.map((item) => <section className="card card-pad" key={item.id}><div className="trip-card-head"><div><span className="eyebrow">Questionnaire</span><h2 className="section-title">{item.name}</h2></div><StatusBadge label={item.status} tone={item.status === "ACTIVE" ? "success" : "danger"} /></div><div className="trip-actions"><button className="button button-secondary" aria-expanded={expanded === item.id} onClick={() => setExpanded((current) => current === item.id ? null : item.id)}>{expanded === item.id ? "Hide versions" : "Show versions"}</button></div>{expanded === item.id && <QuestionnaireVersions questionnaireId={item.id} />}</section>)}</div>}
+    {list.items && list.items.length > 0 && <div className="stack" aria-busy={list.loading}>{list.items.map((item) => <section className="card card-pad" key={item.id}><div className="trip-card-head"><div><span className="eyebrow">{questionnairePurposeCopy[item.purpose].label}</span><h2 className="section-title">{item.name}</h2><p className="trip-meta">{questionnairePurposeCopy[item.purpose].help}</p></div><StatusBadge label={item.status} tone={item.status === "ACTIVE" ? "success" : "danger"} /></div><div className="trip-actions"><button className="button button-secondary" aria-expanded={expanded === item.id} onClick={() => setExpanded((current) => current === item.id ? null : item.id)}>{expanded === item.id ? "Hide versions" : "Show versions"}</button></div>{expanded === item.id && <QuestionnaireVersions questionnaireId={item.id} />}</section>)}</div>}
     {list.pagination && <PaginationControl {...list.pagination} page={search.page} loading={list.loading} onPageChange={(page) => search.setPage(page, totalPages(list.pagination!.total, list.pagination!.pageSize))} onPageSizeChange={search.setPageSize} />}
-    {show && <Modal onDismiss={() => setShow(false)}><form className="dialog" role="dialog" aria-modal="true" onSubmit={create}><span className="eyebrow">First draft included</span><h2>Create questionnaire</h2><div className="field"><label htmlFor="name">Name</label><input className="input" id="name" name="name" maxLength={200} required /></div><div className="dialog-actions"><button type="button" className="button button-secondary" onClick={() => setShow(false)}>Cancel</button><button className="button" disabled={busy}>Create</button></div></form></Modal>}
+    {show && <Modal onDismiss={() => setShow(false)}><form className="dialog" role="dialog" aria-modal="true" onSubmit={create}><span className="eyebrow">First draft included</span><h2>Create questionnaire</h2><div className="field"><label htmlFor="name">Name</label><input className="input" id="name" name="name" maxLength={200} required /></div><div className="field"><label htmlFor="purpose">Feedback section</label><select className="select" id="purpose" name="purpose" required defaultValue=""><option value="" disabled>Choose a section</option>{questionnairePurposes.map((purpose)=><option key={purpose} value={purpose}>{questionnairePurposeCopy[purpose].label}</option>)}</select><small>Only one active questionnaire can be configured for each section.</small></div><div className="dialog-actions"><button type="button" className="button button-secondary" onClick={() => setShow(false)}>Cancel</button><button className="button" disabled={busy}>Create</button></div></form></Modal>}
   </>;
 }
 

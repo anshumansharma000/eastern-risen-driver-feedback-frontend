@@ -1,6 +1,7 @@
-import type { QuestionCategory } from "./contracts.ts";
+import type { AdminFeedbackView, QuestionCategory } from "./contracts.ts";
 
 export type AdminFeedbackFilters = {
+  view?:AdminFeedbackView;
   month?:string; driverId?:string; driverSource?:"AGENCY"|"OUTSOURCED"; vendorId?:string;
   reviewState?:"NORMAL"|"FLAGGED"|"ARCHIVED"; submissionMode?:"ONLINE"|"OFFLINE_SYNC";
   category?:QuestionCategory; minimumScore?:number; maximumScore?:number; negativeOnly?:boolean;
