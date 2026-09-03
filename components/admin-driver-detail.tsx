@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { AdminDriver, DriverSource, LifecycleStatus, Vendor } from "@/lib/contracts";
 import { getAdminDriver, passwordValidation, resetAdminDriverPassword } from "@/lib/account-api";
-import { ApiError, apiRequest, errorMessage, getPaginated } from "@/lib/api";
+import { ApiError, apiRequest, errorPresentation, getPaginated, type ApiErrorPresentation } from "@/lib/api";
 import { driverMutationFromForm, validateAssignmentSettings, assignmentSettingsFromForm, validateDriverLicense } from "@/lib/driver-scheduling";
 import { formatDateTime, lifecycleStatus } from "@/lib/status";
 import { DriverForm } from "./admin-drivers";
@@ -13,7 +13,7 @@ import { PasswordField } from "./password-field";
 import { EmptyState, ErrorAlert, LoadingCards, StatusBadge } from "./ui";
 import { phoneError } from "@/lib/phone";
 
-type Notice = { message: string; requestId?: string } | null;
+type Notice = ApiErrorPresentation | null;
 
 export function AdminDriverDetail({ driverId }: { driverId: string }) {
   const [driver, setDriver] = useState<AdminDriver | null>(null);
@@ -167,5 +167,5 @@ function ResetPasswordDialog({ driver, newPassword, confirmation, busy, error, o
 function DetailCard({ title, children }: { title: string; children: React.ReactNode }) { return <section className="card profile-card"><h2>{title}</h2><dl className="definition-list">{children}</dl></section>; }
 function Row({ label, value }: { label: string; value: string }) { return <div><dt>{label}</dt><dd>{value}</dd></div>; }
 function LicenseExpiry({expiresOn}:{expiresOn:string}) { const today=new Date();today.setHours(0,0,0,0);const expiry=new Date(`${expiresOn}T00:00:00`);const days=Math.ceil((expiry.getTime()-today.getTime())/86_400_000);const expired=days<0;const soon=!expired&&days<=60;return <div><dt>Validity</dt><dd><StatusBadge label={expired?"Expired":soon?`Expires in ${days} days`:"Valid"} tone={expired?"danger":soon?"warning":"success"}/></dd></div> }
-function notice(cause: unknown) { return { message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined }; }
+function notice(cause: unknown) { return errorPresentation(cause); }
 function formatDuty(minutes: number) { const hours = Math.floor(minutes / 60); const rest = minutes % 60; return [hours && `${hours} hour${hours === 1 ? "" : "s"}`, rest && `${rest} minute${rest === 1 ? "" : "s"}`].filter(Boolean).join(" "); }

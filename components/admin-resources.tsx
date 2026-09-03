@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import type { CreateVendorRequest, LifecycleStatus, Vehicle, Vendor } from "@/lib/contracts";
-import { ApiError, apiRequest, errorMessage } from "@/lib/api";
+import { apiRequest, errorPresentation, type ApiErrorPresentation } from "@/lib/api";
 import { listQuery, pageAfterRemovingLastItem, totalPages } from "@/lib/pagination";
 import { lifecycleStatus } from "@/lib/status";
 import { EmptyState, ErrorAlert, LoadingCards, StatusBadge } from "./ui";
@@ -38,7 +38,7 @@ function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
   const list = usePaginatedList<Item>(path);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [mutationError, setMutationError] = useState<{ message: string; requestId?: string } | null>(null);
+  const [mutationError, setMutationError] = useState<ApiErrorPresentation | null>(null);
   const [phoneFieldError, setPhoneFieldError] = useState("");
 
   useEffect(() => {
@@ -62,7 +62,7 @@ function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
       setShowForm(false);
       await list.refetch();
     } catch (cause) {
-      setMutationError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined });
+      setMutationError(errorPresentation(cause));
     } finally { setBusy(false); }
   }
 
@@ -74,7 +74,7 @@ function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
       if (nextPage !== search.page) search.setPage(nextPage);
       else await list.refetch();
     } catch (cause) {
-      setMutationError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined });
+      setMutationError(errorPresentation(cause));
     } finally { setBusy(false); }
   }
 
@@ -83,7 +83,7 @@ function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
   return <>
     <div className="page-header"><div><p className="eyebrow">Operations directory</p><h1>{title}</h1><p>{copy}</p></div><button className="button" onClick={() => setShowForm(true)}>Add {resource.slice(0, -1)}</button></div>
     <div className="toolbar"><div className="filters"><label className="field" style={{ margin: 0 }}><span className="sr-only">Filter by lifecycle</span><select className="select" value={status} onChange={(event) => search.update({ status: event.target.value }, true)}><option value="ACTIVE">Active</option><option value="DEACTIVATED">Deactivated</option><option value="ARCHIVED">Archived</option></select></label></div><button className="button button-secondary" disabled={list.loading} onClick={() => void list.refetch()}>Refresh</button></div>
-    {error && <ErrorAlert message={error.message} requestId={error.requestId} />}
+    {error && <ErrorAlert {...error} />}
     {list.items === null && !list.error && <LoadingCards />}
     {list.items?.length === 0 && !error && <EmptyState title={`No ${status.toLowerCase()} ${resource}`}>Create the first record or choose another lifecycle filter.</EmptyState>}
     {list.items && list.items.length > 0 && <section className="card data-list" aria-busy={list.loading}><div className="data-row data-head"><span>Name</span><span>Details</span><span>Status</span><span>Actions</span></div>{list.items.map((item) => {

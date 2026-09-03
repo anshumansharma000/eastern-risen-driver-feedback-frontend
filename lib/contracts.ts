@@ -51,6 +51,11 @@ export type PaginatedResponse<T> = {
   };
 };
 export interface DataResponse<T> { data: T }
+/** Standard error contract returned by every backend endpoint. */
+export interface ApiValidationField { field:string; message:string; rule:string }
+export interface ApiErrorDetails { fields?:ApiValidationField[] }
+export interface ApiErrorEnvelope { code:string; message:string; developerMessage:string; details?:ApiErrorDetails; requestId:string }
+export interface ApiErrorResponse { error:ApiErrorEnvelope }
 
 export interface VehicleSummary { id: string; registrationNumber: string; displayName: string; status?: LifecycleStatus }
 export interface DriverSummary {

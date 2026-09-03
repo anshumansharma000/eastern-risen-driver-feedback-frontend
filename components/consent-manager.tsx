@@ -2,14 +2,14 @@
 
 import { FormEvent,useEffect,useState } from "react";
 import type { ConsentVersion,DataResponse } from "@/lib/contracts";
-import { ApiError,apiRequest,errorMessage } from "@/lib/api";
+import { apiRequest,errorPresentation,type ApiErrorPresentation } from "@/lib/api";
 import { ErrorAlert,LoadingCards,StatusBadge } from "./ui";
 import { Modal } from "./modal";
 import { AlertDialog } from "./alert-dialog";
 
 export function ConsentManager(){
   const [consent,setConsent]=useState<ConsentVersion|null>(null);
-  const [error,setError]=useState<{message:string;requestId?:string}|null>(null);
+  const [error,setError]=useState<ApiErrorPresentation|null>(null);
   const [show,setShow]=useState(false);
   const [busy,setBusy]=useState(false);
   const [pendingContent,setPendingContent]=useState<string|null>(null);
@@ -19,7 +19,7 @@ export function ConsentManager(){
       const response=await apiRequest<DataResponse<ConsentVersion>>("/api/v1/admin/consent-versions/active");
       setConsent(response.data);
     }catch(cause){
-      setError({message:errorMessage(cause),requestId:cause instanceof ApiError?cause.requestId:undefined});
+      setError(errorPresentation(cause));
     }
   }
 
@@ -40,7 +40,7 @@ export function ConsentManager(){
       setShow(false);
       await load();
     }catch(cause){
-      setError({message:errorMessage(cause),requestId:cause instanceof ApiError?cause.requestId:undefined});
+      setError(errorPresentation(cause));
     }finally{
       setBusy(false);
     }
@@ -55,7 +55,7 @@ export function ConsentManager(){
       </div>
       <button className="button" onClick={()=>setShow(true)}>Create new version</button>
     </div>
-    {error&&<ErrorAlert message={error.message} requestId={error.requestId}/>}
+    {error&&<ErrorAlert {...error}/>}
     {!consent&&!error&&<LoadingCards/>}
     {consent&&<section className="card card-pad">
       <div className="trip-card-head">

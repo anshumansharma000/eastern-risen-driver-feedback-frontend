@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { backoffDelay, canRetry } from "../lib/retry-policy.ts";
 import { assignmentErrorFields, changedTripFields, normalizeLocation, validateTripSchedule } from "../lib/trip-scheduling.ts";
-import { ApiError, apiRequest, errorMessage } from "../lib/api.ts";
+import { ApiError, apiRequest, errorMessage, errorPresentation, normalizeFieldPath, resolveFormFieldErrors } from "../lib/api.ts";
 import { assignmentSettingsFromForm, driverMutationFromForm, dutyMinutes, validateAssignmentSettings, validateDriverLicense } from "../lib/driver-scheduling.ts";
 import { boundedPage, pageAfterRemovingLastItem, parsePaginatedResponse, totalPages, updateListSearch } from "../lib/pagination.ts";
 import { filterComboboxOptions } from "../lib/combobox.ts";
@@ -180,6 +180,117 @@ test("passenger API calls send the query token as a Bearer credential without co
   }
   assert.equal(new Headers(request.init.headers).get("authorization"), "Bearer opaque.token");
   assert.equal(request.init.credentials, "omit");
+});
+
+test("standard API field errors remove transport prefixes, map known form fields, and retain unmapped summary items", () => {
+  const error = new ApiError(422, "REQUEST_VALIDATION_FAILED", "Please check the form.", "request-1", {
+    fields: [
+      { field:"body.email", message:"Enter a valid email address.", rule:"email" },
+      { field:"query.page", message:"Page must be positive.", rule:"min" },
+      { field:"params.id", message:"ID is invalid.", rule:"uuid" },
+      { field:"body.respondent.phone", message:"Enter an international phone number.", rule:"e164" },
+    ],
+  });
+  assert.equal(normalizeFieldPath("body.email"), "email");
+  assert.equal(normalizeFieldPath("query.page"), "page");
+  assert.equal(normalizeFieldPath("params.id"), "id");
+  const resolved = resolveFormFieldErrors(error, ["email", "page", "respondent.phone"]);
+  assert.deepEqual(resolved.byField, { email:"Enter a valid email address.", page:"Page must be positive.", "respondent.phone":"Enter an international phone number." });
+  assert.equal(resolved.firstField, "email");
+  assert.deepEqual(resolved.unmapped.map((field) => field.field), ["id"]);
+  assert.equal(resolved.summary.length, 4);
+});
+
+test("known API codes use actionable copy while unknown codes preserve the backend user message", () => {
+  const known = new ApiError(409, "DRIVER_SCHEDULE_CONFLICT", "Backend copy", "request-known", undefined, "conflict", { developerMessage:"Overlap in allocation table" });
+  const unknown = new ApiError(409, "NEW_DOMAIN_REJECTION", "The selected record changed. Review it and try again.", "request-unknown", undefined, "conflict", { developerMessage:"Optimistic version mismatch" });
+  assert.equal(errorMessage(known), "The selected driver already has another trip during this time.");
+  assert.equal(errorMessage(unknown), "The selected record changed. Review it and try again.");
+  assert.notEqual(errorMessage(unknown), unknown.developerMessage);
+});
+
+test("error presentation keeps developer diagnostics separate from primary user copy", () => {
+  const presented = errorPresentation(new ApiError(500, "INTERNAL_SERVER_ERROR", "User-safe backend message", "request-safe", undefined, "server", { developerMessage:"Database pool exhausted at internal host" }));
+  assert.equal(presented.message, "The service encountered a problem. Your information is still here; try again.");
+  assert.equal(presented.developerMessage, "Database pool exhausted at internal host");
+  assert.equal(presented.requestId, "request-safe");
+  assert.doesNotMatch(presented.message, /Database|internal host|request-safe/);
+  const sensitive = errorPresentation(new ApiError(422, "NEW_REJECTION", "Contact passenger@example.com or +91 98765 43210.", "request-redacted", undefined, "validation", { developerMessage:"token=super-secret-credential-value; answers: private response" }));
+  assert.doesNotMatch(sensitive.message, /passenger@example|98765|43210/);
+  assert.doesNotMatch(sensitive.developerMessage, /super-secret|private response/);
+  const ui = readFileSync(new URL("../components/ui.tsx", import.meta.url), "utf8");
+  assert.match(ui, /<summary>Technical details<\/summary>/);
+  assert.match(ui, /Developer message/);
+  assert.match(ui, /Request ID/);
+});
+
+async function captureApiFailure(responseOrFailure) {
+  const originalFetch = globalThis.fetch;
+  const originalConsole = console.error;
+  console.error = () => undefined;
+  globalThis.fetch = typeof responseOrFailure === "function" ? responseOrFailure : async () => responseOrFailure;
+  try { await apiRequest("/api/v1/admin/test"); }
+  catch (error) { return error; }
+  finally { globalThis.fetch = originalFetch; console.error = originalConsole; }
+  assert.fail("Expected API request to fail");
+}
+
+test("standardized errors use x-request-id only when body requestId is absent", async () => {
+  const withoutBodyId = await captureApiFailure(new Response(JSON.stringify({ error:{ code:"NEW_DOMAIN_REJECTION", message:"Review this record.", developerMessage:"Version mismatch" } }), { status:409, headers:{ "content-type":"application/json", "x-request-id":"header-request" } }));
+  assert.ok(withoutBodyId instanceof ApiError);
+  assert.equal(withoutBodyId.requestId, "header-request");
+  const withBodyId = await captureApiFailure(new Response(JSON.stringify({ error:{ code:"NEW_DOMAIN_REJECTION", message:"Review this record.", developerMessage:"Version mismatch", requestId:"body-request" } }), { status:409, headers:{ "content-type":"application/json", "x-request-id":"header-request" } }));
+  assert.equal(withBodyId.requestId, "body-request");
+});
+
+test("malformed, non-JSON, and network failures are local safe errors distinct from backend rejections", async () => {
+  const malformed = await captureApiFailure(new Response("<html>gateway failure</html>", { status:502, headers:{ "content-type":"text/html", "x-request-id":"gateway-request" } }));
+  assert.equal(malformed.code, "MALFORMED_API_RESPONSE");
+  assert.equal(malformed.isBackendRejection, false);
+  assert.equal(malformed.requestId, "gateway-request");
+  assert.doesNotMatch(malformed.userMessage, /html|gateway failure/);
+  const invalidJson = await captureApiFailure(new Response("{not-json", { status:500, headers:{ "content-type":"application/json" } }));
+  assert.equal(invalidJson.code, "MALFORMED_API_RESPONSE");
+  const network = await captureApiFailure(async () => { throw new TypeError("fetch failed with token=secret"); });
+  assert.equal(network.code, "NETWORK_FAILURE");
+  assert.equal(network.kind, "transport");
+  assert.equal(network.retryable, true);
+  assert.equal(network.requestId, undefined);
+  assert.doesNotMatch(network.userMessage, /token|secret|fetch failed/);
+});
+
+test("status semantics normalize 401, 403, 409, 429, 500, and 503 without discarding safe domain copy", async () => {
+  const cases = [
+    [401,"AUTHENTICATION_REQUIRED","authentication",false],
+    [403,"ADMIN_ACCESS_REQUIRED","authorization",false],
+    [409,"NEW_CONFLICT","conflict",false],
+    [429,"RATE_LIMIT_EXCEEDED","rate-limit",true],
+    [500,"INTERNAL_SERVER_ERROR","server",true],
+    [503,"SERVICE_UNAVAILABLE","server",true],
+  ];
+  for (const [status, code, kind, retryable] of cases) {
+    const response = new Response(JSON.stringify({ error:{ code, message:`Safe domain message ${status}`, developerMessage:`Diagnostic ${status}`, requestId:`request-${status}` } }), { status, headers:{ "content-type":"application/json", ...(status === 429 ? { "retry-after":"3" } : {}) } });
+    const error = await captureApiFailure(response);
+    assert.equal(error.status, status);
+    assert.equal(error.kind, kind);
+    assert.equal(error.retryable, retryable);
+    assert.equal(error.isBackendRejection, true);
+    if (status === 409) assert.equal(error.userMessage, "Safe domain message 409");
+    if (status === 429) assert.equal(error.retryAfterMs, 3000);
+  }
+});
+
+test("production failures never log normalized diagnostics or sensitive transport data", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalConsole = console.error;
+  const originalEnvironment = process.env.NODE_ENV;
+  const logs = [];
+  process.env.NODE_ENV = "production";
+  console.error = (...values) => logs.push(values);
+  globalThis.fetch = async () => new Response(JSON.stringify({ error:{ code:"INTERNAL_SERVER_ERROR", message:"Please retry.", developerMessage:"Do not expose token=secret or passenger@example.com", requestId:"request-prod" } }), { status:500, headers:{ "content-type":"application/json" } });
+  try { await assert.rejects(() => apiRequest("/api/v1/admin/test", { method:"POST", body:JSON.stringify({ token:"secret", passengerEmail:"passenger@example.com", answers:["private"] }) })); }
+  finally { globalThis.fetch=originalFetch;console.error=originalConsole;process.env.NODE_ENV=originalEnvironment; }
+  assert.deepEqual(logs, []);
 });
 
 test("copy and native share receive the complete backend link and report cancellation", async () => {
@@ -383,8 +494,8 @@ test("booking metadata is typed, editable, submitted, listed, and rendered with 
   assert.match(contracts, /bookingReference:string; tourName:string\|null; fileNumber:string\|null;/);
   assert.match(contracts, /bookingReference:string; tourName\?:string\|null; fileNumber\?:string\|null;/);
   assert.match(contracts, /"bookingReference"\|"tourName"\|"fileNumber"\|"passengerName"/);
-  assert.match(bookings, /<Field name="tourName" label="Tour name" required=\{false\} maxLength=\{TOUR_NAME_MAX_LENGTH\} defaultValue=\{booking\?\.tourName\?\?""\} error=\{metadataError\.tourName\}/);
-  assert.match(bookings, /<Field name="fileNumber" label="File number" required=\{false\} maxLength=\{FILE_NUMBER_MAX_LENGTH\} defaultValue=\{booking\?\.fileNumber\?\?""\} error=\{metadataError\.fileNumber\}/);
+  assert.match(bookings, /<Field name="tourName" label="Tour name" required=\{false\} maxLength=\{TOUR_NAME_MAX_LENGTH\} defaultValue=\{booking\?\.tourName\?\?""\} error=\{metadataError\.tourName\|\|backendFields\.tourName\}/);
+  assert.match(bookings, /<Field name="fileNumber" label="File number" required=\{false\} maxLength=\{FILE_NUMBER_MAX_LENGTH\} defaultValue=\{booking\?\.fileNumber\?\?""\} error=\{metadataError\.fileNumber\|\|backendFields\.fileNumber\}/);
   assert.match(bookings, /const metadata=bookingMetadataFromForm\(data\)/);
   assert.match(bookings, /bookingReference:String\(data\.get\("bookingReference"\)\|\|""\)\.trim\(\),\.\.\.metadata,passengerName:/);
   assert.match(bookings, /booking\.tourName&&<small>Tour: \{booking\.tourName\}<\/small>/);

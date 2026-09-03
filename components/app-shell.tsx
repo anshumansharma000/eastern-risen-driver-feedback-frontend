@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { Brand } from "./brand";
-import { ApiError, apiRequest, getData } from "@/lib/api";
+import { ApiError, apiRequest, errorPresentation, getData, type ApiErrorPresentation } from "@/lib/api";
+import { ErrorAlert } from "./ui";
 import type { Principal } from "@/lib/contracts";
 
 const driverNav = [
@@ -37,7 +38,7 @@ const adminNav = [
   ["/admin/rewards", "Rewards"],
   ["/admin/reports", "Reports"],
   ["/admin/settings", "Settings"],
-  ["/admin/profile", "Account"],
+  ["/admin/profile", "Profile"],
 ] as const;
 
 export function AppShell({
@@ -54,6 +55,7 @@ export function AppShell({
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [principal, setPrincipal] = useState<Principal | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [sessionError,setSessionError]=useState<ApiErrorPresentation|null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const unavailable = new Set(["/admin/rewards", "/admin/reports"]);
   const refreshIdentity = useCallback(async () => {
@@ -65,8 +67,7 @@ export function AppShell({
       }
       setPrincipal(result.user);
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 403)
-        router.replace(`/${role === "admin" ? "driver" : "admin"}/login`);
+      if (cause instanceof ApiError && cause.status === 403) setSessionError(errorPresentation(cause));
     } finally {
       setCheckingSession(false);
     }
@@ -127,18 +128,19 @@ export function AppShell({
         <p>Checking your secure session…</p>
       </main>
     );
+  if(sessionError)return <main className="page"><div className="page-header"><div><p className="eyebrow">Access control</p><h1>Access forbidden</h1><p>Your signed-in account cannot open this workspace.</p></div></div><ErrorAlert {...sessionError}/><Link className="button button-secondary" href={`/${role}/login`}>Return to sign in</Link></main>;
   const currentPath = normalizePath(pathname);
   const driverContextScreen =
     role === "driver" &&
     (currentPath === "/driver/profile" ||
       currentPath.startsWith("/driver/trips/"));
-  const initials = accountInitials(principal?.displayName);
+  const initials = accountInitials(principal?.displayName, role);
   return (
     <div
       className={`app-layout ${role === "driver" ? "driver-shell" : "admin-shell"}`}
     >
       <aside className="sidebar">
-        <Brand />
+        <Brand href={`/${role}`} />
         {navigation(`${role} navigation`)}
         <div className="side-footer">
           <p>Eastern Risen Expedition Pvt. Ltd.</p>
@@ -164,70 +166,85 @@ export function AppShell({
                 <strong>Journeys</strong>
               </Link>
             ) : (
-              <Brand compact href={role === "driver" ? "/driver" : "/"} />
+              <Brand compact href={`/${role}`} />
             )}
           </span>
           <span className="eyebrow workspace-label">
             {role === "driver" ? "Driver workspace" : "Operations workspace"}
           </span>
-          <span className="account">
-            {principal?.displayName && <strong>{principal.displayName}</strong>}
-            <span className="status status-success">Secure session</span>
-          </span>
-          {role === "driver" ? (
-            <div className="driver-profile-menu" ref={profileMenuRef}>
+          <div className="topbar-actions">
+            <span className="account">
+              {principal?.displayName && <strong>{principal.displayName}</strong>}
+              <span className="status status-success">Secure session</span>
+            </span>
+            <div
+              className="profile-menu"
+              ref={profileMenuRef}
+            >
               <button
-                className="driver-profile-button"
+                className="profile-menu-button"
                 type="button"
                 aria-label="Open account menu"
                 aria-haspopup="dialog"
                 aria-expanded={profileMenuOpen}
-                aria-controls="driver-account-menu"
+                aria-controls={`${role}-account-menu`}
                 onClick={() => setProfileMenuOpen((current) => !current)}
               >
                 {initials}
               </button>
               {profileMenuOpen && (
                 <div
-                  className="driver-profile-popover"
-                  id="driver-account-menu"
+                  className="profile-menu-popover"
+                  id={`${role}-account-menu`}
                   role="dialog"
-                  aria-label="Driver account"
+                  aria-label={`${role === "admin" ? "Administrator" : "Driver"} account`}
                 >
-                  <div className="driver-profile-summary">
-                    <span className="driver-profile-avatar" aria-hidden="true">
+                  <div className="profile-menu-summary">
+                    <span className="profile-menu-avatar" aria-hidden="true">
                       {initials}
                     </span>
                     <span>
                       <strong>
-                        {principal?.displayName || "Driver account"}
+                        {principal?.displayName ||
+                          (role === "admin" ? "Administrator" : "Driver account")}
                       </strong>
-                      <small>Secure driver session</small>
+                      <small>
+                        Secure {role === "admin" ? "admin" : "driver"} session
+                      </small>
                     </span>
                   </div>
                   <Link
-                    href="/driver/profile"
+                    href={`/${role}/profile`}
                     onClick={() => setProfileMenuOpen(false)}
                   >
-                    View profile
+                    Profile
                   </Link>
+                  {role === "admin" && (
+                    <Link
+                      href="/admin/settings"
+                      onClick={() => setProfileMenuOpen(false)}
+                    >
+                      Settings
+                    </Link>
+                  )}
                   <button type="button" onClick={logout}>
                     Sign out
                   </button>
                 </div>
               )}
             </div>
-          ) : (
-            <button
-              className="mobile-menu-button"
-              type="button"
-              aria-expanded={mobileNavOpen}
-              aria-controls="mobile-navigation"
-              onClick={() => setMobileNavOpen((current) => !current)}
-            >
-              {mobileNavOpen ? "Close" : "Menu"}
-            </button>
-          )}
+            {role === "admin" && (
+              <button
+                className="mobile-menu-button"
+                type="button"
+                aria-expanded={mobileNavOpen}
+                aria-controls="mobile-navigation"
+                onClick={() => setMobileNavOpen((current) => !current)}
+              >
+                {mobileNavOpen ? "Close" : "Menu"}
+              </button>
+            )}
+          </div>
         </header>
         {mobileNavOpen && (
           <div className="mobile-nav-panel" id="mobile-navigation">
@@ -298,8 +315,8 @@ function normalizePath(pathname: string) {
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
 }
 
-function accountInitials(name?: string) {
-  if (!name?.trim()) return "DR";
+function accountInitials(name: string | undefined, role: "driver" | "admin") {
+  if (!name?.trim()) return role === "admin" ? "AD" : "DR";
   return name
     .trim()
     .split(/\s+/)

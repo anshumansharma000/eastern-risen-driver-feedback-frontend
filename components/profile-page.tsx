@@ -13,7 +13,7 @@ import {
   updateDriverProfile,
   type ProfileRole,
 } from "@/lib/account-api";
-import { ApiError, errorMessage, getData } from "@/lib/api";
+import { ApiError, apiRequest, errorMessage, errorPresentation, getData, type ApiErrorPresentation } from "@/lib/api";
 import type { AdminProfile, DriverProfile, Principal, UpdateDriverProfileRequest } from "@/lib/contracts";
 import { formatDateTime, lifecycleStatus } from "@/lib/status";
 import { ErrorAlert, LoadingCards, StatusBadge } from "./ui";
@@ -22,7 +22,7 @@ import { PhoneInput } from "./phone-input";
 import { phoneError, type E164Phone } from "@/lib/phone";
 
 type Profile = AdminProfile | DriverProfile;
-type Notice = { message: string; requestId?: string } | null;
+type Notice = ApiErrorPresentation | null;
 type FieldErrors = Partial<Record<"displayName" | "email" | "phone" | "currentPassword" | "newPassword" | "confirmation", string>>;
 
 export function ProfilePage({ role }: { role: ProfileRole }) {
@@ -36,6 +36,7 @@ export function ProfilePage({ role }: { role: ProfileRole }) {
   const [savingPassword, setSavingPassword] = useState(false);
   const [saved, setSaved] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -108,9 +109,20 @@ export function ProfilePage({ role }: { role: ProfileRole }) {
     } finally { setSavingPassword(false); }
   }
 
+  async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    clearPrivateClientState();
+    try {
+      await apiRequest("/api/v1/auth/logout", { method: "POST" });
+    } finally {
+      router.replace("/");
+    }
+  }
+
   if (signingOut) return <main className="page"><div className="alert alert-info" role="status">Password changed; sign in again.</div></main>;
   return <main className="page">
-    <div className="page-header"><div><p className="eyebrow">Account and security</p><h1>Profile</h1><p>Keep your account identity current and protect access to your workspace.</p></div></div>
+    <div className="page-header"><div><p className="eyebrow">Account and security</p><h1>Profile</h1><p>Keep your account identity current and protect access to your workspace.</p></div><button className="button button-secondary" type="button" onClick={() => void logout()} disabled={loggingOut}>{loggingOut ? "Signing out…" : "Sign out"}</button></div>
     {loadError && <><ErrorAlert {...loadError} /><button className="button button-secondary" onClick={() => void load()}>Try again</button></>}
     {!profile && !loadError && <LoadingCards />}
     {profile && <div className="profile-layout">
@@ -175,4 +187,4 @@ function ProfileField({ name, label, error, required = true, ...props }: { name:
 function Detail({ label, value }: { label: string; value: string }) { return <div><dt>{label}</dt><dd>{value}</dd></div>; }
 function date(value: string | null) { return value ? formatDateTime(value, "Asia/Kolkata") : "Not recorded"; }
 function duty(minutes: number) { const hours = Math.floor(minutes / 60); const rest = minutes % 60; return `${hours ? `${hours} hr` : ""}${hours && rest ? " " : ""}${rest ? `${rest} min` : ""}`; }
-function toNotice(cause: unknown) { return { message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined }; }
+function toNotice(cause: unknown) { return errorPresentation(cause); }

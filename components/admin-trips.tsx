@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import type { AdminDriver, Booking, QuestionnairePurpose, Trip, TripCreationSource, TripStatus, Vehicle } from "@/lib/contracts";
-import { ApiError, apiRequest, errorMessage, getPaginated } from "@/lib/api";
+import { ApiError, apiRequest, errorMessage, errorPresentation, getPaginated, resolveFormFieldErrors, type ApiErrorPresentation, type NormalizedFieldError } from "@/lib/api";
 import { formatTripRange, tripSource, tripStatus } from "@/lib/status";
 import { assignmentErrorFields, changedTripFields, validateTripSchedule, type TripFieldName, type TripScheduleInput, type TripValidationErrors } from "@/lib/trip-scheduling";
 import { listQuery, pageAfterRemovingLastItem, totalPages } from "@/lib/pagination";
-import { EmptyState, ErrorAlert, LoadingCards, StatusBadge } from "./ui";
+import { EmptyState, ErrorAlert, FormErrorSummary, LoadingCards, StatusBadge } from "./ui";
 import { Modal } from "./modal";
 import { PaginationControl, useListSearchParams, usePaginatedList } from "./pagination";
 import { Combobox, type ComboboxOption } from "./combobox";
@@ -73,9 +73,10 @@ export function AdminTrips() {
   const list = usePaginatedList<Trip>(path);
   const [dialog, setDialog] = useState<TripDialog | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; requestId?: string } | null>(null);
-  const [dialogError, setDialogError] = useState<{ message: string; requestId?: string } | null>(null);
+  const [error, setError] = useState<ApiErrorPresentation | null>(null);
+  const [dialogError, setDialogError] = useState<ApiErrorPresentation | null>(null);
   const [fieldErrors, setFieldErrors] = useState<TripValidationErrors>({});
+  const [backendSummary,setBackendSummary]=useState<NormalizedFieldError[]>([]);
   const [pendingArchive, setPendingArchive] = useState<Trip | null>(null);
 
   const loadOptions = useCallback(async () => {
@@ -88,7 +89,7 @@ export function AdminTrips() {
       ]);
       setDrivers(driverList.data); setVehicles(vehicleList.data); setBookings(bookingList.data);
     } catch (cause) {
-      setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined });
+      setError(errorPresentation(cause));
     }
   }, []);
 
@@ -100,7 +101,7 @@ export function AdminTrips() {
   }, [list.pagination, search.page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function openDialog(next: TripDialog) {
-    setDialogError(null); setFieldErrors({}); setDialog(next);
+    setDialogError(null); setFieldErrors({}); setBackendSummary([]); setDialog(next);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -128,11 +129,15 @@ export function AdminTrips() {
       setDialog(null); await list.refetch();
     } catch (cause) {
       const message = errorMessage(cause);
-      setDialogError({ message, requestId: cause instanceof ApiError ? cause.requestId : undefined });
+      setDialogError(errorPresentation(cause));
       if (cause instanceof ApiError) {
+        const resolved=resolveFormFieldErrors(cause,["bookingId","pickupLocation","destination","scheduledAt","scheduledEndAt","vehicleId","driverId"]);
+        const structured=Object.fromEntries(Object.entries(resolved.byField).filter(([field])=>["bookingId","pickupLocation","destination","scheduledAt","scheduledEndAt","vehicleId","driverId"].includes(field)));
         const fields = assignmentErrorFields[cause.code] || [];
-        setFieldErrors(Object.fromEntries(fields.map((field) => [field, message])));
-        if (fields[0]) focusTripField(form, fields[0]);
+        setFieldErrors({...Object.fromEntries(fields.map((field) => [field, message])),...structured});
+        setBackendSummary(resolved.summary);
+        const first=(resolved.firstField||fields[0]) as TripFieldName|undefined;
+        if (first) focusTripField(form,first);
       }
     } finally { setBusy(false); }
   }
@@ -146,7 +151,7 @@ export function AdminTrips() {
       if (nextPage !== search.page) search.setPage(nextPage);
       else await list.refetch();
     }
-    catch (cause) { setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined }); }
+    catch (cause) { setError(errorPresentation(cause)); }
     finally { setBusy(false); }
   }
 
@@ -161,14 +166,14 @@ export function AdminTrips() {
       return <article className="card trip-card" key={trip.id}><div className="trip-card-head"><div><span className="eyebrow">{tripSource[trip.creationSource]}</span><h3><Link className="text-link" href={`/admin/bookings/detail?bookingId=${encodeURIComponent(trip.booking.id)}`}>{trip.booking.bookingReference}</Link></h3><span className="trip-meta">{trip.booking.passengerName} · {formatTripRange(trip.scheduledAt, trip.scheduledEndAt)} · {trip.driver.displayName} · {trip.vehicle.displayName}</span><FeedbackPurposeBadges purposes={trip.feedbackPurposes}/></div><StatusBadge label={state.label} tone={state.tone} /></div><div className="route"><div className="route-line"><i className="route-dot" /><i className="route-dot" /></div><div className="route-points"><span><small>Pickup</small>{trip.pickupLocation}</span><span><small>Destination</small>{trip.destination}</span></div></div>{trip.status !== "ARCHIVED" && <div className="trip-actions">{(trip.status === "READY" || trip.status === "FEEDBACK_STARTED") && <ShareFeedbackOnWhatsAppAction tripId={trip.id} recipientName={trip.booking.passengerName} editHref={`/admin/bookings/edit?bookingId=${encodeURIComponent(trip.booking.id)}`}/>} {(trip.status === "READY" || trip.status === "FEEDBACK_STARTED") && <ShareFeedbackLinkAction tripId={trip.id} audience="admin"/>}{trip.status === "READY" && <button className="button button-secondary" disabled={busy} onClick={() => openDialog({ mode: "edit", trip })}>Edit trip</button>}<button className="button button-secondary" disabled={busy} onClick={() => setPendingArchive(trip)}>Archive trip</button></div>}</article>;
     })}</section>}
     {list.pagination && <PaginationControl {...list.pagination} page={search.page} loading={list.loading} onPageChange={(page) => search.setPage(page, totalPages(list.pagination!.total, list.pagination!.pageSize))} onPageSizeChange={search.setPageSize} />}
-    {dialog && <Modal onDismiss={() => !busy && setDialog(null)}><TripForm mode={dialog.mode} trip={dialog.mode === "edit" ? dialog.trip : undefined} bookings={bookings} drivers={drivers} vehicles={vehicles} busy={busy} error={dialogError} fieldErrors={fieldErrors} onCancel={() => setDialog(null)} onSubmit={submit} /></Modal>}
+    {dialog && <Modal onDismiss={() => !busy && setDialog(null)}><TripForm mode={dialog.mode} trip={dialog.mode === "edit" ? dialog.trip : undefined} bookings={bookings} drivers={drivers} vehicles={vehicles} busy={busy} error={dialogError} fieldErrors={fieldErrors} backendSummary={backendSummary} onCancel={() => setDialog(null)} onSubmit={submit} /></Modal>}
     {pendingArchive && <AlertDialog title={`Archive trip ${pendingArchive.booking.bookingReference}?`} confirmLabel="Archive trip" destructive busy={busy} onCancel={() => setPendingArchive(null)} onConfirm={() => void archive(pendingArchive.id)}><p>The trip will leave active views but remain available in historical records.</p></AlertDialog>}
   </>;
 }
 
-function TripForm({ mode, trip, bookings, drivers, vehicles, busy, error, fieldErrors, onCancel, onSubmit }: {
+function TripForm({ mode, trip, bookings, drivers, vehicles, busy, error, fieldErrors, backendSummary, onCancel, onSubmit }: {
   mode: "create" | "edit"; trip?: Trip; bookings:Booking[]; drivers: AdminDriver[]; vehicles: Vehicle[]; busy: boolean;
-  error: { message: string; requestId?: string } | null; fieldErrors: TripValidationErrors;
+  error: ApiErrorPresentation | null; fieldErrors: TripValidationErrors; backendSummary:NormalizedFieldError[];
   onCancel: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const driverAvailable = !trip || drivers.some((driver) => driver.id === trip.driver.id);
@@ -206,7 +211,8 @@ function TripForm({ mode, trip, bookings, drivers, vehicles, busy, error, fieldE
   return <form className="dialog" onSubmit={onSubmit} role="dialog" aria-modal="true">
     <span className="eyebrow">{mode === "edit" ? "Ready trip" : "Admin-assigned"}</span><h2 ref={headingRef} tabIndex={-1}>{mode === "edit" ? "Edit trip" : "Create a trip"}</h2>
     <p className="trip-meta">Enter times in this device’s timezone ({deviceTimeZone()}). Trip lists are displayed in India Standard Time.</p>
-    {error && <ErrorAlert message={error.message} requestId={error.requestId} />}
+    {error && <ErrorAlert {...error} />}
+    <FormErrorSummary errors={backendSummary}/>
     <Combobox id="bookingId" name="bookingId" label="Booking" options={bookingOptions} defaultValue={trip?.booking.id} placeholder="Search by booking reference or passenger" emptyMessage="No active bookings match that search" error={fieldErrors.bookingId} hint="Searches active bookings currently loaded." required />
     <TripField name="pickupLocation" label="Pickup location" maxLength={500} defaultValue={trip?.pickupLocation} error={fieldErrors.pickupLocation} />
     <TripField name="destination" label="Destination" maxLength={500} defaultValue={trip?.destination} error={fieldErrors.destination} />

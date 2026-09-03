@@ -33,9 +33,7 @@ export function validatePhotoFile(file:Pick<File,"type"|"size">&{name?:string}, 
 
 export function photoErrorMessage(error:unknown) {
   const code=error instanceof ApiError?error.code:"";
-  const details=error instanceof ApiError&&error.details&&typeof error.details==="object"?error.details as Record<string,unknown>:null;
-  const maxBytes=typeof details?.maxBytes==="number"?details.maxBytes:null;
-  if (code==="PHOTO_TOO_LARGE") return `This photo is larger than the ${maxBytes?formatPhotoSize(maxBytes):"configured"} limit. Choose another image or continue without one.`;
+  if (code==="PHOTO_TOO_LARGE") return error instanceof ApiError?error.userMessage:"This photo is larger than the configured limit. Choose another image or continue without one.";
   if (code==="PHOTO_INVALID") return "The file was not a valid JPEG, PNG, or WebP image. Choose another image or continue without one.";
   if (code==="PHOTO_UPLOAD_MISSING") return "The photo upload did not arrive. Try again to create a new upload, or continue without the photo.";
   if (code==="PHOTO_UPLOAD_REJECTED") return "The photo could not be accepted. Choose a new image or continue without one.";
@@ -59,7 +57,7 @@ export async function uploadPassengerPhoto(file:File,token:string,options:{
   if (validation) throw new ApiError(validation.code==="PHOTO_TOO_LARGE"?413:422,validation.code,validation.message);
   const request=options.api??apiRequest;
   const intent=await request<PhotoUploadIntentResponse>("/api/v1/passenger/feedback/photo-uploads",{method:"POST",passengerToken:token,body:JSON.stringify({contentType:file.type,sizeBytes:file.size}),signal:options.signal});
-  if (file.size > intent.data.maxBytes) throw new ApiError(413,"PHOTO_TOO_LARGE","The photo exceeds the server limit.",undefined,{maxBytes:intent.data.maxBytes});
+  if (file.size > intent.data.maxBytes) throw new ApiError(413,"PHOTO_TOO_LARGE",`This photo is larger than the ${formatPhotoSize(intent.data.maxBytes)} limit. Choose another image or continue without one.`);
   if (new Date(intent.data.expiresAt).getTime() <= Date.now()) throw new ApiError(409,"PHOTO_UPLOAD_MISSING","The photo upload intent expired before it could be used.");
   if (intent.data.headers["Content-Type"] !== file.type) throw new ApiError(422,"PHOTO_INVALID","The upload content type did not match the selected file.");
   options.onIntent?.(intent.data);

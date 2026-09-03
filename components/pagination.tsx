@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PaginatedResponse } from "@/lib/contracts";
-import { ApiError, errorMessage, getPaginated } from "@/lib/api";
+import { errorPresentation, getPaginated, type ApiErrorPresentation } from "@/lib/api";
 import { boundedPage, DEFAULT_PAGE, DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, positiveInteger, totalPages, updateListSearch } from "@/lib/pagination";
 
-type ListError = { message: string; requestId?: string } | null;
+type ListError = ApiErrorPresentation | null;
 
 export function useListSearchParams(defaultPageSize = DEFAULT_PAGE_SIZE) {
   const [search, setSearch] = useState("");
@@ -66,7 +66,7 @@ export function usePaginatedList<T>(path: string | null) {
       return result;
     } catch (cause) {
       if (currentRequest === request.current) {
-        setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined });
+        setError(errorPresentation(cause));
       }
       return null;
     } finally {
@@ -75,6 +75,7 @@ export function usePaginatedList<T>(path: string | null) {
   }, [path]);
 
   useEffect(() => { queueMicrotask(() => void load()); }, [load]);
+  useEffect(()=>{const refresh=()=>void load();window.addEventListener("api-stale-state",refresh);return()=>window.removeEventListener("api-stale-state",refresh)},[load]);
   return { response, items: response?.data ?? null, pagination: response?.pagination ?? null, error, loading, refetch: load };
 }
 

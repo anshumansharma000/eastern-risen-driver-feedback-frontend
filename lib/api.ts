@@ -1,104 +1,63 @@
-import type { DataResponse, PaginatedResponse } from "./contracts.ts";
+import type { ApiErrorEnvelope, ApiErrorResponse, ApiValidationField, DataResponse, PaginatedResponse } from "./contracts.ts";
 import { parsePaginatedResponse } from "./pagination.ts";
 import { canRetry } from "./retry-policy.ts";
 
-export type ApiErrorKind = "transport" | "validation" | "authentication" | "authorization" | "not-found" | "conflict" | "rate-limit" | "server" | "protocol";
-export class ApiError extends Error {
-  status: number;
-  code: string;
-  requestId?: string;
-  details?: unknown;
-  kind: ApiErrorKind;
-  constructor(status: number, code: string, message: string, requestId?: string, details?: unknown, kind: ApiErrorKind = "protocol") {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-    this.requestId = requestId;
-    this.details = details;
-    this.kind = kind;
+export type ApiErrorKind = "transport" | "validation" | "authentication" | "authorization" | "not-found" | "conflict" | "payload-too-large" | "unsupported-media" | "rate-limit" | "server" | "protocol";
+export interface NormalizedFieldError { field:string; sourceField:string; message:string; rule:string }
+export interface NormalizedApiError { status:number; code:string; userMessage:string; developerMessage:string; requestId?:string; fieldErrors:NormalizedFieldError[]; retryable:boolean; retryAfterMs?:number; kind:ApiErrorKind; isBackendRejection:boolean }
+export type ApiErrorPresentation = Partial<Pick<NormalizedApiError,"code"|"userMessage"|"developerMessage"|"requestId"|"retryable"|"kind">> & {message:string};
+
+const friendly:Record<string,string>={
+  AUTHENTICATION_FAILED:"Those details did not match an active account.",AUTHENTICATION_REQUIRED:"Your session has ended. Please sign in again.",
+  FEEDBACK_HANDOFF_INVALID:"This feedback link is invalid, expired, or has already been used.",FEEDBACK_HANDOFF_UNAVAILABLE:"Feedback has not started for this trip or was already submitted.",
+  ACTIVE_QUESTIONNAIRE_NOT_FOUND:"No active feedback questionnaire is available. Activate one before sharing.",ACTIVE_CONSENT_NOT_FOUND:"No active consent notice is available. Activate one before sharing.",
+  BOOKING_REFERENCE_MISMATCH:"The booking reference does not match this trip.",FEEDBACK_ANSWERS_INVALID:"One or more answers need your attention.",RATE_LIMIT_EXCEEDED:"Too many attempts. Please wait a moment and try again.",
+  NETWORK_UNAVAILABLE:"We cannot reach the service right now. Check your connection and try again.",NETWORK_FAILURE:"We cannot reach the service right now. Check your connection and try again.",
+  REQUEST_TIMEOUT:"The service took too long to respond. Your information is still here; try again.",MALFORMED_API_RESPONSE:"The service returned an unexpected response. Try again or contact support.",
+  ROUTE_NOT_FOUND:"This operation is not configured correctly. Contact support before trying again.",TRIP_CANNOT_BE_SCHEDULED_IN_PAST:"The trip must be scheduled in the future.",
+  INVALID_TRIP_SCHEDULE:"The trip end time must be after the start time.",TRIP_LOCATIONS_MUST_DIFFER:"Pickup and destination must be different.",TRIP_BOOKING_REFERENCE_ALREADY_EXISTS:"This booking reference is already in use.",
+  DRIVER_NOT_AVAILABLE_FOR_ASSIGNMENT:"The selected driver is currently unavailable for assignment.",DRIVER_SCHEDULE_CONFLICT:"The selected driver already has another trip during this time.",
+  VEHICLE_SCHEDULE_CONFLICT:"The selected vehicle already has another trip during this time.",DRIVER_ON_LEAVE:"The selected driver is on leave during this time.",TRIP_OUTSIDE_DRIVER_SHIFT:"This trip falls outside the selected driver’s configured shift.",
+  DRIVER_DAILY_DUTY_LIMIT_EXCEEDED:"This trip would exceed the driver’s daily duty limit.",BOOKING_REFERENCE_ALREADY_EXISTS:"This booking reference is already in use.",INVALID_BOOKING_PERIOD:"The booking end time must be after its start time.",
+  BOOKING_PERIOD_EXCLUDES_TRIPS:"The new booking period would exclude one or more existing trips.",BOOKING_NOT_FOUND:"This booking is no longer available.",TRIP_NOT_FOUND:"This trip is unavailable or is not assigned to you.",
+  BOOKING_NOT_EDITABLE:"This booking can no longer be edited.",ACTIVE_BOOKING_NOT_FOUND:"Choose an active booking for this trip.",TRIP_OUTSIDE_BOOKING_PERIOD:"The trip must start and end within the booking period.",
+  INVALID_DRIVER_LICENSE_PERIOD:"License expiry date must be after the issue date.",ACCOUNT_EMAIL_ALREADY_EXISTS:"That email address is already used by another account.",CURRENT_PASSWORD_INVALID:"The current password is incorrect.",
+  PASSWORD_REUSE_NOT_ALLOWED:"Choose a password you have not used before.",PROFILE_NOT_FOUND:"This profile is no longer available.",DRIVER_NOT_FOUND:"This driver is no longer available.",REQUEST_VALIDATION_FAILED:"One or more fields need your attention.",
+  ADMIN_ACCESS_REQUIRED:"Administrator access is required.",DRIVER_ACCESS_REQUIRED:"Driver access is required.",INTERNAL_SERVER_ERROR:"The service encountered a problem. Your information is still here; try again.",
+  SERVICE_UNAVAILABLE:"The service is temporarily unavailable. Your information is still here; try again.",
+};
+const statusCopy:Partial<Record<number,string>>={401:"Your session has ended. Please sign in again.",403:"You do not have permission to complete this action.",404:"The requested resource could not be found.",413:"The submitted information or file is too large. Reduce its size and try again.",415:"This request or file type is not supported. Choose a supported format and try again.",429:"Too many attempts. Please wait before trying again; your information is still here.",500:"The service encountered a problem. Your information is still here; try again.",503:"The service is temporarily unavailable. Your information is still here; try again."};
+
+export class ApiError extends Error implements NormalizedApiError{
+  status:number;code:string;userMessage:string;developerMessage:string;requestId?:string;fieldErrors:NormalizedFieldError[];retryable:boolean;retryAfterMs?:number;kind:ApiErrorKind;isBackendRejection:boolean;
+  /** @deprecated Use fieldErrors. */ details?:unknown;
+  constructor(status:number,code:string,message:string,requestId?:string,details?:unknown,kind:ApiErrorKind=kindFor(status),options:{developerMessage?:string;fieldErrors?:NormalizedFieldError[];retryable?:boolean;retryAfterMs?:number;isBackendRejection?:boolean}={}){
+    const statusMessage=[401,403,404,413,415,429,500,503].includes(status)?statusCopy[status]:undefined;const userMessage=friendly[code]||statusMessage||sanitizeUserMessage(message)||"The service could not complete this request.";super(userMessage);this.name="ApiError";this.status=status;this.code=code;this.userMessage=userMessage;this.developerMessage=sanitizeDeveloperMessage(options.developerMessage||message||"No developer message was provided.");this.requestId=requestId;this.details=details;this.fieldErrors=options.fieldErrors||normalizeFieldErrors(details);this.kind=kind;this.retryable=options.retryable??canRetry(status,kind);this.retryAfterMs=options.retryAfterMs;this.isBackendRejection=options.isBackendRejection??false;
   }
 }
-const kindFor = (status: number): ApiErrorKind => status === 400 ? "validation" : status === 401 ? "authentication" : status === 403 ? "authorization" : status === 404 ? "not-found" : status === 409 ? "conflict" : status === 429 ? "rate-limit" : status >= 500 ? "server" : "protocol";
-export const isRetryable = (error: unknown) => error instanceof ApiError && canRetry(error.status, error.kind);
+export function sanitizeDeveloperMessage(message:string):string{return message.slice(0,1000).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted email]").replace(/\b(?:Bearer\s+)?[A-Za-z0-9_-]{20,}(?:\.[A-Za-z0-9_-]{10,})*\b/g,"[redacted credential]").replace(/\b(?:token|cookie|password|authorization|answers?|response payload|request payload)\s*[:=]\s*[^,;\n]+/gi,(value)=>`${value.split(/[:=]/,1)[0]}: [redacted]`).replace(/\+?\d[\d ()-]{8,}\d/g,"[redacted phone]")}
+export function sanitizeUserMessage(message:string):string{if(!message||/\n\s*at\s+|(?:TypeError|ReferenceError|SyntaxError):|^\s*[\[{][\s\S]*[\]}]\s*$/.test(message))return"The service could not complete this request.";return sanitizeDeveloperMessage(message).replace(/\[redacted (?:email|phone|credential)\]/g,"[private information]")}
+function kindFor(status:number):ApiErrorKind{if(status===0)return"transport";if(status===400||status===422)return"validation";if(status===401)return"authentication";if(status===403)return"authorization";if(status===404)return"not-found";if(status===409)return"conflict";if(status===413)return"payload-too-large";if(status===415)return"unsupported-media";if(status===429)return"rate-limit";if(status>=500)return"server";return"protocol"}
+export function normalizeFieldPath(path:string):string{return path.replace(/^\/+/,"").replaceAll("/",".").replace(/\[(\d+)\]/g,".$1").replace(/^\.+|\.+$/g,"").replace(/^(?:body|query|params)\./,"")}
+export function normalizeFieldErrors(details:unknown):NormalizedFieldError[]{if(!details||typeof details!=="object")return[];const fields=(details as {fields?:unknown}).fields;if(!Array.isArray(fields))return[];return fields.flatMap((candidate):NormalizedFieldError[]=>{if(!candidate||typeof candidate!=="object")return[];const value=candidate as Partial<ApiValidationField>;if(typeof value.field!=="string"||typeof value.message!=="string"||typeof value.rule!=="string")return[];return[{field:normalizeFieldPath(value.field),sourceField:value.field,message:value.message,rule:value.rule}]})}
+export interface ResolvedFormErrors{byField:Record<string,string>;summary:NormalizedFieldError[];unmapped:NormalizedFieldError[];firstField?:string}
+export function resolveFormFieldErrors(error:unknown,formFields:Iterable<string>):ResolvedFormErrors{const available=[...new Set(formFields)].filter(Boolean);const fieldErrors=error instanceof ApiError?error.fieldErrors:[];const byField:Record<string,string>={};const unmapped:NormalizedFieldError[]=[];for(const issue of fieldErrors){const leaf=issue.field.split(/[.[\]]/).filter(Boolean).at(-1)||issue.field;const leafMatches=available.filter(field=>field===leaf||field.endsWith(`.${leaf}`));const match=available.includes(issue.field)?issue.field:leafMatches.length===1?leafMatches[0]:undefined;if(match&&!byField[match])byField[match]=issue.message;else unmapped.push(issue)}return{byField,summary:fieldErrors,unmapped,firstField:Object.keys(byField)[0]}}
+export function focusFirstInvalidField(form:HTMLFormElement,errors:ResolvedFormErrors):void{if(!errors.firstField)return;const named=form.elements.namedItem(errors.firstField);const element=named instanceof HTMLElement?named:form.ownerDocument.getElementById(errors.firstField);element?.focus()}
+export const isRetryable=(error:unknown)=>error instanceof ApiError&&error.retryable;
+export const errorMessage=(error:unknown)=>error instanceof ApiError?error.userMessage:"Something unexpected happened.";
+export function errorPresentation(error:unknown):ApiErrorPresentation{const normalized=error instanceof ApiError?error:localError("UNEXPECTED_CLIENT_ERROR","Something unexpected happened.","A non-API error reached the presentation layer.","protocol",false);return{message:normalized.userMessage,userMessage:normalized.userMessage,code:normalized.code,developerMessage:normalized.developerMessage,requestId:normalized.requestId,retryable:normalized.retryable,kind:normalized.kind}}
 
-const apiBase = () => (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080").replace(/\/$/, "");
-const frontendBasePath = () => process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-let redirectingForAuthentication = false;
-function redirectExpiredSession(path: string, status: number, passengerToken?: string) {
-  if (status !== 401 || passengerToken || typeof window === "undefined" || redirectingForAuthentication) return;
-  if (/\/api\/v1\/auth\/(?:admin|driver)\/login$/.test(path)) return;
-  const basePath = frontendBasePath();
-  const pathname = basePath && window.location.pathname.startsWith(basePath)
-    ? window.location.pathname.slice(basePath.length) || "/"
-    : window.location.pathname;
-  const role = pathname.startsWith("/admin") ? "admin" : pathname.startsWith("/driver") ? "driver" : null;
-  if (!role || pathname === `/${role}/login`) return;
-  redirectingForAuthentication = true;
-  window.location.replace(`${basePath}/${role}/login?reason=session-expired`);
-}
-export async function apiRequest<T>(path: string, init: RequestInit & { passengerToken?: string; timeoutMs?: number } = {}): Promise<T> {
-  const { passengerToken, timeoutMs, ...requestInit } = init;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs ?? 12000);
-  const headers = new Headers(init.headers);
-  if (init.body) headers.set("content-type", "application/json");
-  if (passengerToken) headers.set("authorization", `Bearer ${passengerToken}`);
-  try {
-    const response = await fetch(`${apiBase()}${path}`, { ...requestInit, headers, credentials: passengerToken ? "omit" : "include", signal: init.signal ?? controller.signal });
-    if (response.status === 204) return undefined as T;
-    const payload: unknown = await response.json().catch(() => undefined);
-    if (!response.ok) {
-      const envelope = payload as { error?: { code?: string; message?: string; details?: unknown; requestId?: string } } | undefined;
-      redirectExpiredSession(path, response.status, passengerToken);
-      throw new ApiError(response.status, envelope?.error?.code || "UNKNOWN_API_ERROR", envelope?.error?.message || "The service could not complete this request.", envelope?.error?.requestId || response.headers.get("x-request-id") || undefined, envelope?.error?.details, kindFor(response.status));
-    }
-    return payload as T;
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(0, "NETWORK_UNAVAILABLE", "The service could not be reached.", undefined, undefined, "transport");
-  } finally { clearTimeout(timeout); }
-}
-export async function getData<T>(path: string, init?: RequestInit & { passengerToken?: string }) { return (await apiRequest<DataResponse<T>>(path, init)).data; }
-export async function getPaginated<T>(path: string, init?: RequestInit & { passengerToken?: string }): Promise<PaginatedResponse<T>> {
-  return parsePaginatedResponse<T>(await apiRequest<unknown>(path, init));
-}
+const apiBase=()=>(process.env.NEXT_PUBLIC_API_BASE_URL||"http://localhost:8080").replace(/\/$/,"");const frontendBasePath=()=>process.env.NEXT_PUBLIC_BASE_PATH??"";let redirectingForAuthentication=false;
+function clearPrivateSessionState(){if(typeof window!=="undefined")window.dispatchEvent(new Event("private-session-cleared"))}
+function redirectExpiredSession(path:string,status:number,passengerToken?:string){if(status!==401||passengerToken||typeof window==="undefined"||redirectingForAuthentication)return;if(/\/api\/v1\/auth\/(?:admin|driver)\/login$/.test(path))return;const basePath=frontendBasePath();const pathname=basePath&&window.location.pathname.startsWith(basePath)?window.location.pathname.slice(basePath.length)||"/":window.location.pathname;const role=pathname.startsWith("/admin")?"admin":pathname.startsWith("/driver")?"driver":null;if(!role||pathname===`/${role}/login`)return;redirectingForAuthentication=true;window.location.replace(`${basePath}/${role}/login?reason=session-expired`)}
+function parseRetryAfter(value:string|null,now=Date.now()):number|undefined{if(!value)return undefined;const seconds=Number(value);if(Number.isFinite(seconds)&&seconds>=0)return Math.ceil(seconds*1000);const date=Date.parse(value);return Number.isNaN(date)?undefined:Math.max(0,date-now)}
+function isErrorEnvelope(payload:unknown):payload is ApiErrorResponse{if(!payload||typeof payload!=="object")return false;const error=(payload as {error?:unknown}).error;if(!error||typeof error!=="object")return false;const value=error as Partial<ApiErrorEnvelope>;return typeof value.code==="string"&&typeof value.message==="string"&&typeof value.developerMessage==="string"}
+function safeRequestId(response:Response,envelope?:ApiErrorEnvelope){return envelope?.requestId||response.headers.get("x-request-id")||undefined}
+function localError(code:string,message:string,developerMessage:string,kind:ApiErrorKind,retryable:boolean,requestId?:string){return new ApiError(0,code,message,requestId,undefined,kind,{developerMessage,retryable,isBackendRejection:false})}
+function logDevelopmentError(error:ApiError){if(process.env.NODE_ENV==="production")return;console.error("API request failed",{status:error.status,code:error.code,userMessage:error.userMessage,developerMessage:error.developerMessage,requestId:error.requestId,fieldErrors:error.fieldErrors,retryable:error.retryable,retryAfterMs:error.retryAfterMs,kind:error.kind,isBackendRejection:error.isBackendRejection})}
 
-const friendly: Record<string, string> = {
-  AUTHENTICATION_FAILED: "Those details did not match an active account.", AUTHENTICATION_REQUIRED: "Your session has ended. Please sign in again.",
-  FEEDBACK_HANDOFF_INVALID: "This feedback link is invalid, expired, or has already been used.",
-  FEEDBACK_HANDOFF_UNAVAILABLE: "Feedback has not started for this trip or was already submitted.",
-  ACTIVE_QUESTIONNAIRE_NOT_FOUND: "No active feedback questionnaire is available. Activate one before sharing.",
-  ACTIVE_CONSENT_NOT_FOUND: "No active consent notice is available. Activate one before sharing.",
-  BOOKING_REFERENCE_MISMATCH: "The booking reference does not match this trip.", FEEDBACK_ANSWERS_INVALID: "One or more answers need your attention.",
-  RATE_LIMIT_EXCEEDED: "Too many attempts. Please wait a moment and try again.", NETWORK_UNAVAILABLE: "We cannot reach the service right now.",
-  TRIP_CANNOT_BE_SCHEDULED_IN_PAST: "The trip must be scheduled in the future.",
-  INVALID_TRIP_SCHEDULE: "The trip end time must be after the start time.",
-  TRIP_LOCATIONS_MUST_DIFFER: "Pickup and destination must be different.",
-  TRIP_BOOKING_REFERENCE_ALREADY_EXISTS: "This booking reference is already in use.",
-  DRIVER_NOT_AVAILABLE_FOR_ASSIGNMENT: "The selected driver is currently unavailable for assignment.",
-  DRIVER_SCHEDULE_CONFLICT: "The selected driver already has another trip during this time.",
-  VEHICLE_SCHEDULE_CONFLICT: "The selected vehicle already has another trip during this time.",
-  DRIVER_ON_LEAVE: "The selected driver is on leave during this time.",
-  TRIP_OUTSIDE_DRIVER_SHIFT: "This trip falls outside the selected driver’s configured shift.",
-  DRIVER_DAILY_DUTY_LIMIT_EXCEEDED: "This trip would exceed the driver’s daily duty limit.",
-  BOOKING_REFERENCE_ALREADY_EXISTS: "This booking reference is already in use.",
-  INVALID_BOOKING_PERIOD: "The booking end time must be after its start time.",
-  BOOKING_PERIOD_EXCLUDES_TRIPS: "The new booking period would exclude one or more existing trips.",
-  BOOKING_NOT_FOUND: "This booking is no longer available.",
-  TRIP_NOT_FOUND: "This trip is unavailable or is not assigned to you.",
-  BOOKING_NOT_EDITABLE: "This booking can no longer be edited.",
-  ACTIVE_BOOKING_NOT_FOUND: "Choose an active booking for this trip.",
-  TRIP_OUTSIDE_BOOKING_PERIOD: "The trip must start and end within the booking period.",
-  INVALID_DRIVER_LICENSE_PERIOD: "License expiry date must be after the issue date.",
-  ACCOUNT_EMAIL_ALREADY_EXISTS: "That email address is already used by another account.",
-  CURRENT_PASSWORD_INVALID: "The current password is incorrect.",
-  PASSWORD_REUSE_NOT_ALLOWED: "Choose a password you have not used before.",
-  PROFILE_NOT_FOUND: "This profile is no longer available.",
-  DRIVER_NOT_FOUND: "This driver is no longer available.",
-  REQUEST_VALIDATION_FAILED: "One or more fields need your attention.",
-  ADMIN_ACCESS_REQUIRED: "Administrator access is required.",
-  DRIVER_ACCESS_REQUIRED: "Driver access is required.",
-  INTERNAL_SERVER_ERROR: "The service encountered a problem. Try again later.",
-};
-export function errorMessage(error: unknown) { return error instanceof ApiError ? (friendly[error.code] || error.message) : "Something unexpected happened."; }
+export async function apiRequest<T>(path:string,init:RequestInit&{passengerToken?:string;timeoutMs?:number}={}):Promise<T>{const{passengerToken,timeoutMs,...requestInit}=init;const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),timeoutMs??12_000);const headers=new Headers(init.headers);if(init.body&&!headers.has("content-type"))headers.set("content-type","application/json");if(passengerToken)headers.set("authorization",`Bearer ${passengerToken}`);try{const response=await fetch(`${apiBase()}${path}`,{...requestInit,headers,credentials:passengerToken?"omit":"include",signal:init.signal??controller.signal});if(response.status===204)return undefined as T;const contentType=response.headers.get("content-type")||"";const text=await response.text();let payload:unknown;try{payload=text&&/(?:application|text)\/(?:[^;]+\+)?json/i.test(contentType)?JSON.parse(text):undefined}catch{payload=undefined}if(!response.ok){let normalized:ApiError;if(isErrorEnvelope(payload)){const envelope=payload.error;normalized=new ApiError(response.status,envelope.code,envelope.message,safeRequestId(response,envelope),envelope.details,envelope.code==="ROUTE_NOT_FOUND"?"protocol":kindFor(response.status),{developerMessage:envelope.developerMessage,fieldErrors:normalizeFieldErrors(envelope.details),retryAfterMs:response.status===429?parseRetryAfter(response.headers.get("retry-after")):undefined,isBackendRejection:true})}else{normalized=new ApiError(response.status,"MALFORMED_API_RESPONSE",friendly.MALFORMED_API_RESPONSE,safeRequestId(response),undefined,"protocol",{developerMessage:`HTTP ${response.status} did not contain the standardized JSON error envelope.`,retryable:response.status>=500,isBackendRejection:false})}if(response.status===401){clearPrivateSessionState();redirectExpiredSession(path,response.status,passengerToken)}if(typeof window!=="undefined"&&(response.status===409||response.status===422)&&requestInit.method&&requestInit.method!=="GET")window.dispatchEvent(new CustomEvent("api-stale-state",{detail:{status:response.status,code:normalized.code}}));logDevelopmentError(normalized);throw normalized}if(!text||payload===undefined){const malformed=new ApiError(response.status,"MALFORMED_API_RESPONSE",friendly.MALFORMED_API_RESPONSE,safeRequestId(response),undefined,"protocol",{developerMessage:`HTTP ${response.status} success response was empty, malformed, or non-JSON.`,retryable:false});logDevelopmentError(malformed);throw malformed}return payload as T}catch(cause){if(cause instanceof ApiError)throw cause;const aborted=cause instanceof DOMException&&cause.name==="AbortError";const normalized=localError(aborted?"REQUEST_TIMEOUT":"NETWORK_FAILURE",aborted?friendly.REQUEST_TIMEOUT:friendly.NETWORK_FAILURE,aborted?"The API request timed out before receiving a response.":"The API request failed before a valid HTTP response was received.","transport",true);logDevelopmentError(normalized);throw normalized}finally{clearTimeout(timeout)}}
+export async function getData<T>(path:string,init?:RequestInit&{passengerToken?:string}){return(await apiRequest<DataResponse<T>>(path,init)).data}
+export async function getPaginated<T>(path:string,init?:RequestInit&{passengerToken?:string}):Promise<PaginatedResponse<T>>{return parsePaginatedResponse<T>(await apiRequest<unknown>(path,init))}
+export const __test={isErrorEnvelope,parseRetryAfter};
+export const mappedErrorCodes=Object.freeze(Object.keys(friendly));

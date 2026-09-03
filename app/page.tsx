@@ -1,7 +1,45 @@
+"use client";
+
 import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Brand } from "@/components/brand";
+import { ApiError, errorMessage, getData } from "@/lib/api";
+import type { Principal } from "@/lib/contracts";
 
 export default function Home() {
+  const router = useRouter();
+  const [state, setState] = useState<"checking" | "guest" | "error">("checking");
+  const [sessionError, setSessionError] = useState("");
+
+  const resolveSession = useCallback(async () => {
+    setState("checking");
+    setSessionError("");
+    try {
+      const { user } = await getData<{ user: Principal }>("/api/v1/auth/me");
+      router.replace(user.role === "ADMIN" ? "/admin" : "/driver");
+    } catch (cause) {
+      if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) {
+        setState("guest");
+        return;
+      }
+      setSessionError(errorMessage(cause));
+      setState("error");
+    }
+  }, [router]);
+
+  useEffect(() => {
+    queueMicrotask(() => void resolveSession());
+  }, [resolveSession]);
+
+  if (state === "checking") {
+    return <main className="welcome-page welcome-session-state" aria-busy="true"><p>Checking your secure session…</p></main>;
+  }
+
+  if (state === "error") {
+    return <main className="welcome-page welcome-session-state"><div className="alert" role="alert">{sessionError}</div><button className="button button-secondary" type="button" onClick={() => void resolveSession()}>Try again</button></main>;
+  }
+
   return (
     <main className="welcome-page">
       <div className="horizon" aria-hidden="true" />

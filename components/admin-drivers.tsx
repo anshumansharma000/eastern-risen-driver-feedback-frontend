@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import type { AdminDriver, DriverLeave, DriverSource, LifecycleStatus, Vendor } from "@/lib/contracts";
-import { ApiError, apiRequest, errorMessage, getPaginated } from "@/lib/api";
+import { apiRequest, errorPresentation, getPaginated, type ApiErrorPresentation } from "@/lib/api";
 import { formatDateTime, lifecycleStatus } from "@/lib/status";
 import { assignmentSettingsFromForm, driverMutationFromForm, validateAssignmentSettings, validateDriverLicense } from "@/lib/driver-scheduling";
 import { listQuery, pageAfterRemovingLastItem, totalPages } from "@/lib/pagination";
@@ -17,7 +17,7 @@ import { PhoneInput } from "./phone-input";
 import { phoneError } from "@/lib/phone";
 
 export type DriverDialog = { mode: "create" } | { mode: "edit"; driver: AdminDriver };
-type FormError = { message: string; requestId?: string } | null;
+type FormError = ApiErrorPresentation | null;
 const defaultTimeZone = "Asia/Kolkata";
 
 export function AdminDrivers() {
@@ -41,7 +41,7 @@ export function AdminDrivers() {
       const vendorList = await getPaginated<Vendor>("/api/v1/admin/vendors?status=ACTIVE&page=1&pageSize=100");
       setVendors(vendorList.data);
     } catch (cause) {
-      setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined });
+      setError(errorPresentation(cause));
     }
   }, []);
   useEffect(() => { queueMicrotask(() => void loadVendors()); }, [loadVendors]);
@@ -72,7 +72,7 @@ export function AdminDrivers() {
       });
       setDialog(null); await list.refetch();
     } catch (cause) {
-      setDialogError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined });
+      setDialogError(errorPresentation(cause));
     } finally { setBusy(false); }
   }
 
@@ -84,7 +84,7 @@ export function AdminDrivers() {
       if (nextPage !== search.page) search.setPage(nextPage);
       else await list.refetch();
     }
-    catch (cause) { setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined }); }
+    catch (cause) { setError(errorPresentation(cause)); }
     finally { setBusy(false); }
   }
 
@@ -173,7 +173,7 @@ function LeavePeriods({ driver }: { driver: AdminDriver }) {
     try {
       await apiRequest(`/api/v1/admin/drivers/${driver.id}/leaves`, { method: "POST", body: JSON.stringify({ startsAt: starts.toISOString(), endsAt: ends.toISOString(), reason: reason.trim() || undefined }) });
       setStartsAt(""); setEndsAt(""); setReason(""); await list.refetch();
-    } catch (cause) { setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined }); }
+    } catch (cause) { setError(errorPresentation(cause)); }
     finally { setBusy(false); }
   }
   async function remove(leave: DriverLeave) {
@@ -185,7 +185,7 @@ function LeavePeriods({ driver }: { driver: AdminDriver }) {
       if (nextPage !== page) setPage(nextPage);
       else await list.refetch();
     }
-    catch (cause) { setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined }); }
+    catch (cause) { setError(errorPresentation(cause)); }
     finally { setBusy(false); }
   }
   return <fieldset className="settings-group"><legend>Leave periods</legend>

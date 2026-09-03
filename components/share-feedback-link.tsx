@@ -3,20 +3,20 @@
 import Link from "next/link";
 import { useRef, useState, useSyncExternalStore } from "react";
 import type { FeedbackLink } from "@/lib/contracts";
-import { ApiError, apiRequest, errorMessage } from "@/lib/api";
+import { ApiError, apiRequest, errorMessage, errorPresentation, type ApiErrorPresentation } from "@/lib/api";
 import { copyFeedbackLink, feedbackLinkPath, formatFeedbackLinkExpiry, isFeedbackLinkExpired, shareFeedbackLink, type FeedbackLinkAudience } from "@/lib/feedback-link";
 import { MISSING_PASSENGER_PHONE_MESSAGE, openFeedbackOnWhatsApp } from "@/lib/whatsapp-feedback";
 import { Modal } from "./modal";
 import { ErrorAlert } from "./ui";
 
-type Notice = { message: string; requestId?: string } | null;
+type Notice = ApiErrorPresentation | null;
 const subscribeToShareSupport = () => () => undefined;
 
 function notice(cause: unknown, audience: FeedbackLinkAudience): Notice {
   const message = cause instanceof ApiError && cause.status === 404
     ? audience === "driver" ? "This trip is unavailable or is not assigned to you." : "This trip is unavailable."
     : errorMessage(cause);
-  return { message, requestId: cause instanceof ApiError ? cause.requestId : undefined };
+  return { ...errorPresentation(cause), message };
 }
 
 export function ShareFeedbackLinkAction({ tripId, audience }: { tripId: string; audience: FeedbackLinkAudience }) {

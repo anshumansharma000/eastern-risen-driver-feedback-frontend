@@ -4,13 +4,13 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import type { QuestionnaireSummary, QuestionnaireVersionSummary } from "@/lib/contracts";
 import { questionnairePurposeCopy, questionnairePurposes } from "@/lib/feedback-sections";
-import { ApiError, apiRequest, errorMessage } from "@/lib/api";
+import { apiRequest, errorPresentation, type ApiErrorPresentation } from "@/lib/api";
 import { listQuery, totalPages } from "@/lib/pagination";
 import { EmptyState, ErrorAlert, LoadingCards, StatusBadge } from "./ui";
 import { Modal } from "./modal";
 import { PaginationControl, useListSearchParams, usePaginatedList } from "./pagination";
 
-type FormError = { message: string; requestId?: string } | null;
+type FormError = ApiErrorPresentation | null;
 
 export function Questionnaires() {
   const search = useListSearchParams();
@@ -37,7 +37,7 @@ export function Questionnaires() {
       setShow(false);
       await list.refetch();
     } catch (cause) {
-      setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined });
+      setError(errorPresentation(cause));
     } finally { setBusy(false); }
   }
 
@@ -74,7 +74,7 @@ function QuestionnaireVersions({ questionnaireId }: { questionnaireId: string })
       await apiRequest(`/api/v1/admin/questionnaires/${questionnaireId}/versions`, { method: "POST" });
       await list.refetch();
     } catch (cause) {
-      setError({ message: errorMessage(cause), requestId: cause instanceof ApiError ? cause.requestId : undefined });
+      setError(errorPresentation(cause));
     } finally { setBusy(false); }
   }
 

@@ -9,7 +9,7 @@ import type {
   QuestionnaireVersion,
   QuestionType,
 } from "@/lib/contracts";
-import { ApiError, apiRequest, errorMessage } from "@/lib/api";
+import { ApiError, apiRequest, errorPresentation, type ApiErrorPresentation } from "@/lib/api";
 import { ErrorAlert, LoadingCards, StatusBadge } from "./ui";
 import { AlertDialog } from "./alert-dialog";
 
@@ -37,50 +37,6 @@ const newOption = (): EditableOption => ({
   label: "",
   scoreValue: null,
 });
-
-function canonicalPath(path: unknown) {
-  if (Array.isArray(path)) return path.map(String).join(".");
-  if (typeof path !== "string") return "";
-  return path
-    .replace(/^\/+/, "")
-    .replaceAll("/", ".")
-    .replace(/\[(\d+)\]/g, ".$1")
-    .replace(/^\.+|\.+$/g, "")
-    .replace(/^body\./, "");
-}
-
-function backendFieldErrors(details: unknown): FieldErrors {
-  const result: FieldErrors = {};
-  const visit = (value: unknown) => {
-    if (Array.isArray(value)) {
-      value.forEach(visit);
-      return;
-    }
-    if (!value || typeof value !== "object") return;
-    const issue = value as Record<string, unknown>;
-    let path = canonicalPath(issue.instancePath ?? issue.path ?? issue.field ?? issue.dataPath);
-    const params = issue.params && typeof issue.params === "object" ? issue.params as Record<string, unknown> : undefined;
-    if (issue.keyword === "required" && typeof params?.missingProperty === "string") {
-      path = [path, params.missingProperty].filter(Boolean).join(".");
-    }
-    const message = typeof issue.message === "string" ? issue.message : typeof issue.error === "string" ? issue.error : undefined;
-    if (path && message) result[path] ??= message;
-    for (const [key, nestedValue] of Object.entries(issue)) {
-      const keyedPath = canonicalPath(key);
-      const keyedMessage = typeof nestedValue === "string"
-        ? nestedValue
-        : Array.isArray(nestedValue) && typeof nestedValue[0] === "string"
-          ? nestedValue[0]
-          : undefined;
-      if (keyedPath.startsWith("questions.") && keyedMessage) result[keyedPath] ??= keyedMessage;
-    }
-    for (const key of ["errors", "issues", "validation", "details"]) {
-      if (issue[key] !== value) visit(issue[key]);
-    }
-  };
-  visit(details);
-  return result;
-}
 
 function publishErrors(questions: EditableQuestion[]): FieldErrors {
   const result: FieldErrors = {};
@@ -123,7 +79,7 @@ export function QuestionnaireEditor({ questionnaireId }: { questionnaireId: stri
   const versionId = params.get("version");
   const [version, setVersion] = useState<QuestionnaireVersion | null>(null);
   const [questions, setQuestions] = useState<EditableQuestion[]>([]);
-  const [error, setError] = useState<{ message: string; requestId?: string } | null>(null);
+  const [error, setError] = useState<ApiErrorPresentation | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [busy, setBusy] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
@@ -139,10 +95,7 @@ export function QuestionnaireEditor({ questionnaireId }: { questionnaireId: stri
       setQuestions(response.data.questions.map(toEditable));
       setFieldErrors({});
     } catch (cause) {
-      setError({
-        message: errorMessage(cause),
-        requestId: cause instanceof ApiError ? cause.requestId : undefined,
-      });
+      setError(errorPresentation(cause));
     }
   }, [versionId, questionnaireId]);
 
@@ -210,11 +163,8 @@ export function QuestionnaireEditor({ questionnaireId }: { questionnaireId: stri
   }
 
   function handleApiError(cause: unknown) {
-    setFieldErrors(cause instanceof ApiError ? backendFieldErrors(cause.details) : {});
-    setError({
-      message: errorMessage(cause),
-      requestId: cause instanceof ApiError ? cause.requestId : undefined,
-    });
+    setFieldErrors(cause instanceof ApiError ? Object.fromEntries(cause.fieldErrors.map((field) => [field.field, field.message])) : {});
+    setError(errorPresentation(cause));
   }
 
   function add() {
@@ -327,7 +277,7 @@ export function QuestionnaireEditor({ questionnaireId }: { questionnaireId: stri
         </div>
         {version && <StatusBadge label={version.status} tone={editable ? "warning" : version.status === "ACTIVE" ? "success" : "neutral"} />}
       </div>
-      {error && <ErrorAlert message={error.message} requestId={error.requestId} />}
+      {error && <ErrorAlert {...error} />}
       <div className="stack">
         {questions.map((question, index) => {
           const questionPath = `questions.${index}`;

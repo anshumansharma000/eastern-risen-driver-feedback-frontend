@@ -2,13 +2,13 @@
 
 import { FormEvent, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, apiRequest, errorMessage } from "@/lib/api";
+import { apiRequest, errorPresentation, type ApiErrorPresentation } from "@/lib/api";
 import type { DataResponse, Principal } from "@/lib/contracts";
 import { PasswordField } from "./password-field";
 import { ErrorAlert } from "./ui";
 
 export function LoginForm({ role }: { role: "driver" | "admin" }) {
-  const router = useRouter(); const [busy,setBusy]=useState(false); const [error,setError]=useState<{message:string;requestId?:string}|null>(null);
+  const router = useRouter(); const [busy,setBusy]=useState(false); const [error,setError]=useState<ApiErrorPresentation|null>(null);
   const sessionExpired=useSyncExternalStore(
     () => () => undefined,
     () => new URLSearchParams(window.location.search).get("reason")==="session-expired",
@@ -26,7 +26,7 @@ export function LoginForm({ role }: { role: "driver" | "admin" }) {
       const response = await apiRequest<DataResponse<{user:Principal;expiresAt:string}>>(`/api/v1/auth/${role}/login`, { method:"POST", body:JSON.stringify(body) });
       if (response.data.user.role !== role.toUpperCase()) throw new Error("Role mismatch");
       router.replace(role === "driver" ? "/driver" : "/admin");
-    } catch (cause) { setError({ message:errorMessage(cause), requestId:cause instanceof ApiError ? cause.requestId : undefined }); } finally { setBusy(false); }
+    } catch (cause) { setError(errorPresentation(cause)); } finally { setBusy(false); }
   }
   return <form className="auth-form" onSubmit={submit} noValidate><p className="eyebrow">Secure access</p><h2>{role === "driver" ? "Welcome back" : "Operations sign in"}</h2><p className="auth-copy">{role === "driver" ? "Use your driver code to access today’s journeys." : "Use your administrator account to manage Eastern Risen operations."}</p>
     {sessionExpired && !error && <div className="alert alert-info" role="status">Your session expired. Sign in again to continue.</div>}
