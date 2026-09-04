@@ -35,7 +35,7 @@ type WhatsAppOpenDependencies = {
 };
 
 export async function openFeedbackOnWhatsApp(
-  tripId: string,
+  engagementId: string,
   audience: "admin" | "driver",
   recipientName = "there",
   dependencies: WhatsAppOpenDependencies = {},
@@ -48,7 +48,7 @@ export async function openFeedbackOnWhatsApp(
     try { placeholder.opener = null; } catch { /* Some browsers expose a read-only opener. */ }
   }
   try {
-    const response = await request(feedbackLinkPath(audience, tripId));
+    const response = await request(feedbackLinkPath(audience, engagementId));
     const share = response.data;
     const recipient = "recipient" in share ? share.recipient : null;
     if (audience === "admin" && recipient && !recipient.phone) {
@@ -68,6 +68,6 @@ export async function openFeedbackOnWhatsApp(
   }
 }
 
-export async function openAdminFeedbackOnWhatsApp(tripId: string, dependencies: WhatsAppOpenDependencies = {}): Promise<"opened" | "missing-phone"> {
-  return openFeedbackOnWhatsApp(tripId, "admin", "there", dependencies);
+export async function openAdminFeedbackOnWhatsApp(engagementId: string, dependencies: WhatsAppOpenDependencies = {}): Promise<"opened" | "missing-phone"> {
+  return openFeedbackOnWhatsApp(engagementId, "admin", "there", dependencies);
 }

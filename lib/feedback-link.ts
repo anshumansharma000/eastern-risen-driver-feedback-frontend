@@ -2,8 +2,8 @@ import type { FeedbackLink } from "./contracts.ts";
 
 export type FeedbackLinkAudience = "admin" | "driver";
 
-export function feedbackLinkPath(audience: FeedbackLinkAudience, tripId: string) {
-  return `/api/v1/${audience}/trips/${encodeURIComponent(tripId)}/feedback-link`;
+export function feedbackLinkPath(audience: FeedbackLinkAudience, engagementId: string) {
+  return `/api/v1/${audience}/engagements/${encodeURIComponent(engagementId)}/feedback-link`;
 }
 
 export function passengerTokenFromSearch(search: string) {
@@ -17,7 +17,7 @@ export function feedbackLinkFromHandoff(data: {
   feedbackAccessTokenExpiresAt: string;
 }): FeedbackLink {
   return {
-    tripId: data.id,
+    engagementId: data.id,
     feedbackLink: data.feedbackLink,
     feedbackAccessTokenExpiresAt: data.feedbackAccessTokenExpiresAt,
   };

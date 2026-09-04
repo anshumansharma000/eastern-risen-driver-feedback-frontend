@@ -5,6 +5,7 @@ export type LifecycleStatus = "ACTIVE" | "DEACTIVATED" | "ARCHIVED";
 export type DriverSource = "AGENCY" | "OUTSOURCED";
 export type TripCreationSource = "ADMIN_ASSIGNED" | "DRIVER_ENTERED";
 export type TripStatus = "READY" | "FEEDBACK_STARTED" | "SUBMITTED" | "ARCHIVED";
+export type EngagementStatus = "READY" | "FEEDBACK_STARTED" | "SUBMITTED" | "ARCHIVED";
 export type BookingStatus = "ACTIVE" | "COMPLETED" | "CANCELLED" | "ARCHIVED";
 export type QuestionnairePurpose = "ARRIVAL_EXPERIENCE" | "DRIVER_FEEDBACK" | "TOUR_EXPERIENCE";
 export type QuestionType = "STAR_RATING" | "EMOJI_RATING" | "YES_NO" | "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TEXT";
@@ -76,25 +77,29 @@ export interface QuestionnaireVersionSummary { id:string; questionnaireId:string
 export interface AdminQuestion { id:string; stableKey:string; prompt:string; questionType:QuestionType; category:QuestionCategory; status:"ACTIVE"|"INACTIVE"|"ARCHIVED"; isRequired:boolean; contributesToScore:boolean; displayOrder:number; scoreMin:number|null; scoreMax:number|null; options:PassengerOption[] }
 export interface QuestionnaireVersion extends QuestionnaireVersionSummary { questionnaireName:string; questions:AdminQuestion[] }
 export interface Trip {
-  id: string; booking: { id:string; bookingReference:string; passengerName:string }; pickupLocation: string; destination: string; scheduledAt: string; scheduledEndAt: string;
+  id: string; engagementId:string|null; booking: { id:string; bookingReference:string; passengerName:string }; pickupLocation: string; destination: string; scheduledAt: string; scheduledEndAt: string;
   vehicle: VehicleSummary; driver: DriverSummary; creationSource: TripCreationSource; status: TripStatus;
   feedbackPurposes: QuestionnairePurpose[];
   startedFeedbackAt: string | null; createdAt: string; updatedAt: string; archivedAt: string | null;
+}
+export interface DriverEngagement {
+  id:string; booking:{id:string;bookingReference:string;passengerName:string}; sequenceNumber:number; driver:DriverSummary;
+  feedbackPurposes:QuestionnairePurpose[]; status:EngagementStatus; startedFeedbackAt:string|null; trips:Trip[];
+  createdAt:string; updatedAt:string; archivedAt:string|null;
 }
 export interface Booking {
   id:string; bookingReference:string; tourName:string|null; fileNumber:string|null; passengerName:string; passengerPhone:E164Phone|null; startsAt:string; endsAt:string; status:BookingStatus;
   notes:string|null; tripCount:number; createdAt:string; updatedAt:string; archivedAt:string|null;
 }
-export interface BookingFeedbackWarning { code:"ARRIVAL_FEEDBACK_MISSING"|"ARRIVAL_FEEDBACK_NOT_ON_FIRST_TRIP"|"TOUR_FEEDBACK_MISSING"|"TOUR_FEEDBACK_NOT_ON_LAST_TRIP"; message:string; tripId:string|null }
-export interface BookingDetail extends Booking { trips:Trip[]; feedbackWarnings:BookingFeedbackWarning[] }
+export interface BookingDetail extends Booking { engagements:DriverEngagement[] }
 export interface CreateBookingRequest {
   bookingReference:string; tourName?:string|null; fileNumber?:string|null; passengerName:string; passengerPhone:E164Phone; startsAt:string; endsAt:string; notes?:string|null;
 }
 export type UpdateBookingRequest = Partial<Pick<CreateBookingRequest,"bookingReference"|"tourName"|"fileNumber"|"passengerName"|"passengerPhone"|"startsAt"|"endsAt"|"notes">>;
 export interface DriverLeave { id:string; driverId:string; startsAt:string; endsAt:string; reason:string|null; createdAt:string }
-export interface HandoffTrip extends Trip { feedbackAccessToken: string; feedbackAccessTokenExpiresAt: string; feedbackLink: string }
+export interface HandoffEngagement extends DriverEngagement { feedbackAccessToken:string; feedbackAccessTokenExpiresAt:string; feedbackLink:string }
 export interface FeedbackLink {
-  tripId: string;
+  engagementId: string;
   feedbackLink: string;
   feedbackAccessTokenExpiresAt: string;
 }
@@ -111,11 +116,11 @@ export interface QuestionnaireSection { purpose:QuestionnairePurpose; title:stri
 export interface QuestionnaireSnapshot { schemaVersion:2; sections:QuestionnaireSection[] }
 export interface ConsentVersion { id: string; version: number; content: string; effectiveAt: string; retiredAt: string | null }
 export interface PassengerContext {
-  trip: { id: string; bookingReference: string; pickupLocation: string; destination: string; scheduledAt: string; scheduledEndAt: string; vehicle: Omit<VehicleSummary, "id">; driver: { displayName: string } };
+  engagement:{id:string;sequenceNumber:number;bookingReference:string;driver:{displayName:string};trips:Array<{id:string;pickupLocation:string;destination:string;scheduledAt:string;scheduledEndAt:string;vehicle:Omit<VehicleSummary,"id">}>};
   questionnaire: QuestionnaireSnapshot; consent: ConsentVersion;
   completion: { agencyName: string; timezone: string; thankYouMessage: string };
 }
-export interface PassengerFeedbackStart { tripId:string; status:"FEEDBACK_STARTED"; startedFeedbackAt:string }
+export interface PassengerFeedbackStart { engagementId:string; status:"FEEDBACK_STARTED"; startedFeedbackAt:string }
 export type AnswerValue = number | string | boolean | string[];
 export interface FeedbackAnswer { questionId: string; value: AnswerValue }
 export interface SubmitFeedbackRequest {
@@ -123,7 +128,7 @@ export interface SubmitFeedbackRequest {
   respondent: { name: string; phone: E164Phone; email: string; bookingReference: string; consentAccepted: true; consentedAt: string };
   answers: FeedbackAnswer[]; submittedAt: string; submissionMode: "ONLINE" | "OFFLINE_SYNC"; photoId?: string;
 }
-export interface SubmissionReceipt { id: string; clientSubmissionId: string; tripId: string; receivedAt: string; submissionMode: "ONLINE" | "OFFLINE_SYNC"; replayed: boolean; rewardEligible: boolean }
+export interface SubmissionReceipt { id: string; clientSubmissionId: string; engagementId: string; receivedAt: string; submissionMode: "ONLINE" | "OFFLINE_SYNC"; replayed: boolean; rewardEligible: boolean }
 
 export type FeedbackReviewState = "NORMAL" | "FLAGGED" | "ARCHIVED";
 export type FeedbackSubmissionMode = "ONLINE" | "OFFLINE_SYNC";
@@ -134,7 +139,7 @@ export interface AgencySettings {
 export type UpdateAgencySettingsRequest = Partial<Pick<AgencySettings,"agencyName"|"timezone"|"defaultThankYouMessage"|"negativeFeedbackThreshold">>;
 export interface FeedbackListMeta { timezone:string; dateBasis:"SUBMITTED_AT" }
 export interface AdminFeedbackSummary {
-  id:string; tripId:string; bookingReference:string; respondentName:string;
+  id:string; engagementId:string; bookingReference:string; respondentName:string;
   driver:{ id:string; displayName:string; sourceType:DriverSource; vendorId:string|null; vendorName:string|null };
   submittedAt:string; receivedAt:string; submissionMode:FeedbackSubmissionMode; reviewState:FeedbackReviewState; overallScore:number|null;
 }
@@ -148,7 +153,7 @@ export interface AdminFeedbackPhotoSummary { id:string; contentType:string; byte
 export interface AdminFeedbackPhotoAccessResponse { data:{ id:string; url:string; expiresAt:string; contentType:string; byteSize:number } }
 export interface AdminFeedbackDetail extends AdminFeedbackSummary {
   respondent:{name:string;phone:E164Phone;email:string;bookingReference:string};
-  trip:{pickupLocation:string;destination:string;scheduledAt:string;scheduledEndAt:string;vehicle:{registrationNumber:string;displayName:string}};
+  engagement:{sequenceNumber:number}; trips:Array<{id:string;pickupLocation:string;destination:string;scheduledAt:string;scheduledEndAt:string;vehicle:{registrationNumber:string;displayName:string}}>;
   consentVersionId:string; consentedAt:string; questionnaireSections:Array<{purpose:QuestionnairePurpose;questionnaireVersionId:string;displayOrder:number}>; answers:AdminFeedbackAnswer[]; reviewHistory:FeedbackReviewEvent[]; photo:AdminFeedbackPhotoSummary|null;
 }
 export interface ScoreSummary { averageScore:number|null; responseCount:number; answerCount:number }

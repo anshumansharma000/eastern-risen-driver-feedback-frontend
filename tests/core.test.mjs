@@ -27,19 +27,16 @@ import { bookingMetadataErrors, bookingMetadataFromForm, FILE_NUMBER_MAX_LENGTH,
 import { buildE164, E164_PATTERN, optionalPhoneValue, parsePhoneValue, PHONE_COUNTRIES, phoneError } from "../lib/phone.ts";
 import { buildWhatsAppFeedbackMessage, buildWhatsAppShareUrl, openAdminFeedbackOnWhatsApp, openFeedbackOnWhatsApp } from "../lib/whatsapp-feedback.ts";
 import { omitPhotoForOffline, PHOTO_ACCEPT, PHOTO_PRELIMINARY_MAX_BYTES, uploadDirectToR2, uploadPassengerPhoto, validatePhotoFile } from "../lib/photo-upload.ts";
-import { feedbackPurposesFromForm, questionnairePurposes, sameFeedbackPurposes } from "../lib/feedback-sections.ts";
+import { engagementCards } from "../lib/engagements.ts";
 
-test("feedback section selection preserves recommended defaults and canonical custom ordering", () => {
-  const recommended=new FormData();
-  recommended.set("feedbackSelectionMode","recommended");
-  assert.equal(feedbackPurposesFromForm(recommended),undefined);
-  const custom=new FormData();
-  custom.set("feedbackSelectionMode","custom");
-  custom.append("feedbackPurposes","TOUR_EXPERIENCE");
-  custom.append("feedbackPurposes","ARRIVAL_EXPERIENCE");
-  assert.deepEqual(feedbackPurposesFromForm(custom),["ARRIVAL_EXPERIENCE","TOUR_EXPERIENCE"]);
-  assert.deepEqual(questionnairePurposes,["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK","TOUR_EXPERIENCE"]);
-  assert.equal(sameFeedbackPurposes(["DRIVER_FEEDBACK","ARRIVAL_EXPERIENCE"],["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK"]),true);
+test("backend engagement groups render in sequence with derived sections and trip counts", () => {
+  const make=(id,sequenceNumber,driverName,tripCount,feedbackPurposes)=>({id,sequenceNumber,driver:{displayName:driverName},trips:Array.from({length:tripCount},(_,i)=>({id:`${id}-${i}`})),feedbackPurposes});
+  assert.deepEqual(engagementCards([make("only",1,"A",3,["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK","TOUR_EXPERIENCE"])]),[{id:"only",sequenceNumber:1,driverName:"A",tripCount:3,feedbackPurposes:["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK","TOUR_EXPERIENCE"]}]);
+  assert.deepEqual(engagementCards([make("a2",3,"A",1,["DRIVER_FEEDBACK","TOUR_EXPERIENCE"]),make("a1",1,"A",2,["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK"]),make("b1",2,"B",2,["DRIVER_FEEDBACK"])]).map(({driverName,tripCount,feedbackPurposes})=>({driverName,tripCount,feedbackPurposes})),[
+    {driverName:"A",tripCount:2,feedbackPurposes:["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK"]},
+    {driverName:"B",tripCount:2,feedbackPurposes:["DRIVER_FEEDBACK"]},
+    {driverName:"A",tripCount:1,feedbackPurposes:["DRIVER_FEEDBACK","TOUR_EXPERIENCE"]},
+  ]);
 });
 
 test("passenger and admin feedback UIs use composite questionnaire sections", () => {
@@ -49,7 +46,7 @@ test("passenger and admin feedback UIs use composite questionnaire sections", ()
   assert.match(passenger,/questionnaire\.sections\.flatMap/);
   assert.doesNotMatch(passenger,/questionnaireVersionId:context\.questionnaire/);
   assert.match(detail,/answer\.purpose/);
-  assert.match(trips,/Changing these sections invalidates any previously shared feedback link/);
+  assert.doesNotMatch(trips,/name="feedbackPurposes"|FeedbackSectionFields/);
 });
 
 test("admin feedback view keeps driver and company records and detail answers separate", () => {
@@ -138,20 +135,20 @@ test("admin photo details are nullable and signed URLs are memory-only and refre
   assert.doesNotMatch(admin,/localStorage|sessionStorage|console\./);
 });
 
-test("feedback-link endpoints preserve admin and assigned-driver authorization boundaries", () => {
-  assert.equal(feedbackLinkPath("admin", "trip/one"), "/api/v1/admin/trips/trip%2Fone/feedback-link");
-  assert.equal(feedbackLinkPath("driver", "trip/one"), "/api/v1/driver/trips/trip%2Fone/feedback-link");
+test("feedback-link endpoints preserve admin and assigned-driver engagement boundaries", () => {
+  assert.equal(feedbackLinkPath("admin", "engagement/one"), "/api/v1/admin/engagements/engagement%2Fone/feedback-link");
+  assert.equal(feedbackLinkPath("driver", "engagement/one"), "/api/v1/driver/engagements/engagement%2Fone/feedback-link");
   assert.equal(errorMessage(new ApiError(404, "TRIP_NOT_FOUND", "backend")), "This trip is unavailable or is not assigned to you.");
 });
 
 test("handoff uses the complete backend feedback link and formats expiry locally", () => {
   const data = feedbackLinkFromHandoff({
-    id: "trip-1",
+    id: "engagement-1",
     feedbackLink: "https://feedback.example/feedback?token=opaque.value",
     feedbackAccessTokenExpiresAt: "2030-01-02T03:04:00.000Z",
   });
   assert.deepEqual(data, {
-    tripId: "trip-1",
+    engagementId: "engagement-1",
     feedbackLink: "https://feedback.example/feedback?token=opaque.value",
     feedbackAccessTokenExpiresAt: "2030-01-02T03:04:00.000Z",
   });
@@ -431,13 +428,13 @@ test("WhatsApp feedback message preserves exact link and line breaks and URL use
 test("WhatsApp share opens before requesting, calls the admin endpoint once, and navigates the placeholder", async () => {
   const events = [];
   const placeholder = { closed:false, opener:{}, location:{ href:"" }, close(){ this.closed=true; } };
-  const result = await openAdminFeedbackOnWhatsApp("trip/one", {
+  const result = await openAdminFeedbackOnWhatsApp("engagement/one", {
     open:() => { events.push("open"); return placeholder; },
-    request:async(path) => { events.push(`request:${path}`); return { data:{ tripId:"trip/one", feedbackLink:"https://feedback.example/feedback?token=opaque", feedbackAccessTokenExpiresAt:"2030-01-01T00:00:00Z", recipient:{ name:"Asha Singh", phone:"+919876543210" } } }; },
+    request:async(path) => { events.push(`request:${path}`); return { data:{ engagementId:"engagement/one", feedbackLink:"https://feedback.example/feedback?token=opaque", feedbackAccessTokenExpiresAt:"2030-01-01T00:00:00Z", recipient:{ name:"Asha Singh", phone:"+919876543210" } } }; },
     navigate:() => assert.fail("current-page fallback should not run when the placeholder is open"),
   });
   assert.equal(result, "opened");
-  assert.deepEqual(events, ["open", "request:/api/v1/admin/trips/trip%2Fone/feedback-link"]);
+  assert.deepEqual(events, ["open", "request:/api/v1/admin/engagements/engagement%2Fone/feedback-link"]);
   assert.equal(placeholder.opener, null);
   assert.match(placeholder.location.href, /^https:\/\/wa\.me\/919876543210\?text=/);
 });
@@ -451,9 +448,9 @@ test("WhatsApp share closes its placeholder on API failure or a missing recipien
   assert.equal(failedWindow.closed, true);
 
   const missingWindow = { closed:false, opener:{}, location:{ href:"" }, close(){ this.closed=true; } };
-  const missing = await openAdminFeedbackOnWhatsApp("trip-1", {
+  const missing = await openAdminFeedbackOnWhatsApp("engagement-1", {
     open:() => missingWindow,
-    request:async() => ({ data:{ tripId:"trip-1", feedbackLink:"https://feedback.example/private", feedbackAccessTokenExpiresAt:"2030-01-01T00:00:00Z", recipient:{ name:"Legacy Passenger", phone:null } } }),
+    request:async() => ({ data:{ engagementId:"engagement-1", feedbackLink:"https://feedback.example/private", feedbackAccessTokenExpiresAt:"2030-01-01T00:00:00Z", recipient:{ name:"Legacy Passenger", phone:null } } }),
   });
   assert.equal(missing, "missing-phone");
   assert.equal(missingWindow.closed, true);
@@ -461,11 +458,11 @@ test("WhatsApp share closes its placeholder on API failure or a missing recipien
 
 test("driver WhatsApp share uses the assigned-driver link and opens the recipient picker", async () => {
   const placeholder = { closed:false, opener:{}, location:{ href:"" }, close(){ this.closed=true; } };
-  const result = await openFeedbackOnWhatsApp("trip/driver", "driver", "Asha Singh", {
+  const result = await openFeedbackOnWhatsApp("engagement/driver", "driver", "Asha Singh", {
     open:() => placeholder,
     request:async(path) => {
-      assert.equal(path, "/api/v1/driver/trips/trip%2Fdriver/feedback-link");
-      return { data:{ tripId:"trip/driver", feedbackLink:"https://feedback.example/private", feedbackAccessTokenExpiresAt:"2030-01-01T00:00:00Z" } };
+      assert.equal(path, "/api/v1/driver/engagements/engagement%2Fdriver/feedback-link");
+      return { data:{ engagementId:"engagement/driver", feedbackLink:"https://feedback.example/private", feedbackAccessTokenExpiresAt:"2030-01-01T00:00:00Z" } };
     },
   });
   const url = new URL(placeholder.location.href);
@@ -485,7 +482,7 @@ test("booking UI collects, submits, edits, and displays passenger phone with a m
   assert.match(bookings, /passengerPhoneError\(passengerPhone\)/);
   assert.match(bookings, /booking\.passengerPhone\|\|"Missing"/);
   assert.match(bookings, /Legacy booking · <Link className="text-link" href=\{editHref\}>Add phone number/);
-  assert.match(bookings, /ShareFeedbackOnWhatsAppAction tripId=\{trip\.id\} passengerPhone=\{passengerPhone\} editHref=\{editHref\}/);
+  assert.match(bookings, /ShareFeedbackOnWhatsAppAction engagementId=\{engagement\.id\} passengerPhone=\{passengerPhone\} editHref=\{editHref\}/);
 });
 
 test("booking metadata is typed, editable, submitted, listed, and rendered with missing values", () => {
@@ -522,9 +519,11 @@ test("share and passenger UI preserve exact links, bearer tokens, and non-persis
   assert.match(share, /copyFeedbackLink\(details\.feedbackLink, navigator\.clipboard\)/);
   assert.match(share, /shareFeedbackLink\(details\.feedbackLink, navigator\.share\.bind\(navigator\)\)/);
   assert.match(share, /result === "cancelled"/);
-  assert.match(driver, /trip\.status==="READY"\|\|trip\.status==="FEEDBACK_STARTED"\)\&\&<ShareFeedbackLinkAction tripId=\{trip\.id\} audience="driver"/);
+  assert.match(driver, /ShareFeedbackLinkAction engagementId=\{engagement\.id\} audience="driver"/);
   assert.match(driver, /setHandoff\(response\.data\.feedbackAccessToken,response\.data\.feedbackAccessTokenExpiresAt\);router\.push\("\/feedback"\)/);
-  assert.match(admin, /trip\.status === "READY" \|\| trip\.status === "FEEDBACK_STARTED"\) && <ShareFeedbackLinkAction tripId=\{trip\.id\} audience="admin"/);
+  assert.doesNotMatch(admin, /ShareFeedback(?:Link|OnWhatsApp)Action/);
+  const bookings = readFileSync(new URL("../components/admin-bookings.tsx", import.meta.url), "utf8");
+  assert.match(bookings, /ShareFeedbackLinkAction engagementId=\{engagement\.id\} audience="admin"/);
   assert.match(passenger, /passengerTokenFromSearch\(window\.location\.search\)/);
   assert.match(passenger, /passengerToken:token/g);
   assert.match(passenger, /apiRequest<\{data:PassengerFeedbackStart\}>\("\/api\/v1\/passenger\/feedback\/start",\{method:"POST",passengerToken:token\}\)/);
@@ -532,6 +531,45 @@ test("share and passenger UI preserve exact links, bearer tokens, and non-persis
   assert.doesNotMatch(passenger, /localStorage|sessionStorage/);
   assert.match(passenger, /if\(sharedLink\)throw new ApiError/);
   assert.match(passenger, /if\(!sharedLink&&isRetryable\(cause\)\)await enqueue/);
+});
+
+test("engagement migration removes trip feedback calls and preserves conflict and retry safeguards", () => {
+  const sources=["../components/admin-bookings.tsx","../components/admin-trips.tsx","../components/trip-card.tsx","../components/driver-home.tsx","../components/share-feedback-link.tsx","../components/passenger-flow.tsx","../lib/contracts.ts","../lib/offline-queue.ts"].map(path=>readFileSync(new URL(path,import.meta.url),"utf8")).join("\n");
+  assert.doesNotMatch(sources,/\/(?:admin|driver)\/trips\/[^`"']+\/(?:feedback-link|start-feedback)/);
+  assert.match(sources,/driver\/engagements\/\$\{encodeURIComponent\(engagement\.id\)\}\/start-feedback/);
+  assert.match(sources,/context\.engagement\.trips/);
+  assert.match(sources,/engagementId:string/);
+  assert.match(sources,/ENGAGEMENT_FEEDBACK_ALREADY_SUBMITTED/);
+  assert.match(sources,/submissionId\.current\?\?=crypto\.randomUUID\(\)/);
+  assert.match(sources,/id:envelope\.clientSubmissionId/);
+  assert.match(sources,/replayed: boolean/);
+  assert.match(sources,/window\.addEventListener\("api-stale-state",refresh\)/);
+  assert.match(sources,/invalidateTripMutationData/);
+  assert.doesNotMatch(sources,/name="feedbackPurposes"/);
+});
+
+test("admin trip cards use engagement feedback state and do not render feedback chips", () => {
+  const trips=readFileSync(new URL("../components/admin-trips.tsx",import.meta.url),"utf8");
+  assert.match(trips,/getData<DriverEngagement>\(`\/api\/v1\/admin\/engagements\/\$\{encodeURIComponent\(id\)\}`\)/);
+  assert.match(trips,/engagementStatus\?tripStatus\[engagementStatus\]/);
+  assert.doesNotMatch(trips,/const state = tripStatus\[trip\.status\]/);
+  assert.doesNotMatch(trips,/purposes=\{trip\.feedbackPurposes\}/);
+  assert.doesNotMatch(trips,/aria-label="Filter trip status"/);
+});
+
+test("only READY admin engagements can edit feedback sections", () => {
+  const bookings=readFileSync(new URL("../components/admin-bookings.tsx",import.meta.url),"utf8");
+  const driver=readFileSync(new URL("../components/trip-card.tsx",import.meta.url),"utf8");
+  const passenger=readFileSync(new URL("../components/passenger-flow.tsx",import.meta.url),"utf8");
+  assert.match(bookings,/engagement\.status==="READY"&&<button type="button" className="button button-secondary" onClick=\{openSectionEditor\}>Edit feedback sections<\/button>/);
+  assert.match(bookings,/admin\/engagements\/\$\{encodeURIComponent\(engagement\.id\)\}\/feedback-sections/);
+  assert.match(bookings,/JSON\.stringify\(\{feedbackPurposes:selectedSections\}\)/);
+  assert.match(bookings,/selectedSections\.length<1\|\|selectedSections\.length>3/);
+  assert.match(bookings,/ENGAGEMENT_FEEDBACK_SECTIONS_NOT_EDITABLE/);
+  assert.match(bookings,/resources\?\.includes\("trips"\)/);
+  assert.match(bookings,/invalidateEngagementFeedbackData\(\[engagement\.booking\.id\]\)/);
+  assert.doesNotMatch(driver,/Edit feedback sections|feedback-sections/);
+  assert.doesNotMatch(passenger,/Edit feedback sections|admin\/engagements/);
 });
 
 test("active driver journeys, searchable booking selection, and source-aware completion remain visible", () => {
@@ -582,7 +620,7 @@ test("frontend deployment uses static pages and query-based record routes", () =
   assert.match(nextConfig, /output:\s*"export"/);
   assert.match(nextConfig, /basePath/);
   assert.match(workflow, /npm run build:static/);
-  for (const parameter of ["driverId", "feedbackId", "questionnaireId", "tripId"]) {
+  for (const parameter of ["driverId", "feedbackId", "questionnaireId", "engagementId"]) {
     assert.match(detailRoutes, new RegExp(`useRequiredParameter\\("${parameter}"\\)`));
     assert.match(navigationSources, new RegExp(`${parameter}=`));
   }

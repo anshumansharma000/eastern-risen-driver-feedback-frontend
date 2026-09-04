@@ -10,8 +10,22 @@ import { questionnairePurposeCopy } from "@/lib/feedback-sections";
 import { ErrorAlert, LoadingCards, StatusBadge } from "./ui";
 import { Modal } from "./modal";
 
-const COMPANY_NAME = "Eastern Risen Expedition Private Limited";
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const AGENT_BRANDS = {
+  EASTERN_RISEN: {
+    name: "Eastern Risen Expedition Private Limited",
+    logo: "eastern-risen-logo.png",
+  },
+  ODISHA_TOUR_EXPERT: {
+    name: "Odisha Tour Expert",
+    logo: "odisha-tour-expert-logo.png",
+  },
+} as const;
+const COMPANY_NAME = AGENT_BRANDS.EASTERN_RISEN.name;
 type PrintMode = "AGENT" | "USER";
+type PrintDialogStep = "COPY_TYPE" | "AGENT_BRAND";
+type AgentBrandKey = keyof typeof AGENT_BRANDS;
+type AgentBrand = (typeof AGENT_BRANDS)[AgentBrandKey];
 
 export function AdminFeedbackDetailView({ feedbackId, view }: { feedbackId: string; view:AdminFeedbackView }) {
   const router = useRouter();
@@ -24,7 +38,9 @@ export function AdminFeedbackDetailView({ feedbackId, view }: { feedbackId: stri
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [printDialogStep, setPrintDialogStep] = useState<PrintDialogStep>("COPY_TYPE");
   const [printMode, setPrintMode] = useState<PrintMode>("AGENT");
+  const [printBrand, setPrintBrand] = useState<AgentBrandKey>("EASTERN_RISEN");
   const [photoAccess, setPhotoAccess] = useState<AdminFeedbackPhotoAccessResponse["data"] | null>(null);
   const [photoVisible, setPhotoVisible] = useState(false);
   const [photoLoading, setPhotoLoading] = useState(false);
@@ -77,8 +93,14 @@ export function AdminFeedbackDetailView({ feedbackId, view }: { feedbackId: stri
     }
   }
 
-  function printCopy(mode: PrintMode) {
+  function openPrintDialog() {
+    setPrintDialogStep("COPY_TYPE");
+    setPrintDialogOpen(true);
+  }
+
+  function printCopy(mode: PrintMode, brand: AgentBrandKey = "EASTERN_RISEN") {
     setPrintMode(mode);
+    setPrintBrand(brand);
     setPrintDialogOpen(false);
     requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
   }
@@ -116,20 +138,42 @@ export function AdminFeedbackDetailView({ feedbackId, view }: { feedbackId: stri
       <button className="button button-secondary feedback-back" onClick={() => router.push(`/admin/feedback?view=${view}`)}>← Back to {view==="DRIVER"?"driver":"company"} feedback</button>
       <div className="page-header feedback-detail-header">
         <div><p className="eyebrow">{view==="DRIVER"?"Driver feedback":"Company feedback"}</p><h1>{detail.respondent.name}</h1><p>Booking {detail.bookingReference} · submitted {formatInTimezone(detail.submittedAt, timezone)}</p></div>
-        <div className="feedback-header-actions"><StatusBadge label={detail.reviewState === "NORMAL" ? "Normal" : detail.reviewState === "FLAGGED" ? "Flagged" : "Archived"} tone={detail.reviewState === "FLAGGED" ? "warning" : archived ? "neutral" : "success"} /><button className="button" type="button" onClick={() => setPrintDialogOpen(true)}>Print feedback</button></div>
+        <div className="feedback-header-actions"><StatusBadge label={detail.reviewState === "NORMAL" ? "Normal" : detail.reviewState === "FLAGGED" ? "Flagged" : "Archived"} tone={detail.reviewState === "FLAGGED" ? "warning" : archived ? "neutral" : "success"} /><button className="button" type="button" onClick={openPrintDialog}>Print feedback</button></div>
       </div>
       {error && <ErrorAlert message={errorMessage(error)} requestId={error.requestId} />}
       <section className="grid-3 feedback-detail-summary"><div className="card stat"><span>Overall score</span><strong>{scoreLabel(detail.overallScore)}</strong><small>Average of scored answers</small></div><div className="card stat"><span>Submitted</span><strong className="metric-word">{detail.submissionMode === "OFFLINE_SYNC" ? "Offline sync" : "Online"}</strong><small>Received {formatInTimezone(detail.receivedAt, timezone)}</small></div><div className="card stat"><span>Review status</span><strong className="metric-word">{detail.reviewState.toLowerCase()}</strong><small>{archived ? "This feedback is read-only" : "Current administrative status"}</small></div></section>
       {!archived && <div className="trip-actions detail-actions">{detail.reviewState === "NORMAL" ? <button className="button button-secondary" onClick={() => setAction("FLAGGED")}>Flag feedback</button> : <button className="button button-secondary" onClick={() => setAction("NORMAL")}>Unflag feedback</button>}<button className="button button-danger" onClick={() => setAction("ARCHIVED")}>Archive feedback</button></div>}
-      <div className="grid-2 detail-grid"><section className="card card-pad"><h2 className="section-title">Passenger</h2><Definition items={[["Name", detail.respondent.name], ["Phone", detail.respondent.phone], ["Email", detail.respondent.email], ["Booking reference", detail.respondent.bookingReference]]} /></section><section className="card card-pad"><h2 className="section-title">Journey</h2><Definition items={[["Route", `${detail.trip.pickupLocation} → ${detail.trip.destination}`], ["Schedule", `${formatInTimezone(detail.trip.scheduledAt, timezone)} – ${formatInTimezone(detail.trip.scheduledEndAt, timezone)}`], ["Vehicle", `${detail.trip.vehicle.displayName} · ${detail.trip.vehicle.registrationNumber}`], ["Driver", detail.driver.displayName], ["Driver type", detail.driver.sourceType === "AGENCY" ? "Agency driver" : `Outsourced · ${detail.driver.vendorName || "Vendor unavailable"}`]]} /></section></div>
+      <div className="grid-2 detail-grid"><section className="card card-pad"><h2 className="section-title">Passenger</h2><Definition items={[["Name", detail.respondent.name], ["Phone", detail.respondent.phone], ["Email", detail.respondent.email], ["Booking reference", detail.respondent.bookingReference]]} /></section><section className="card card-pad"><h2 className="section-title">Driver engagement {detail.engagement.sequenceNumber}</h2><Definition items={[["Driver",detail.driver.displayName],["Driver type",detail.driver.sourceType==="AGENCY"?"Agency driver":`Outsourced · ${detail.driver.vendorName||"Vendor unavailable"}`]]}/><ol className="history-list">{[...detail.trips].sort((a,b)=>a.scheduledAt.localeCompare(b.scheduledAt)).map(trip=><li key={trip.id}><strong>{trip.pickupLocation} → {trip.destination}</strong><small>{formatInTimezone(trip.scheduledAt,timezone)} – {formatInTimezone(trip.scheduledEndAt,timezone)} · {trip.vehicle.displayName} · {trip.vehicle.registrationNumber}</small></li>)}</ol></section></div>
       {detail.photo&&<section className="card card-pad admin-photo-card"><div className="section-heading"><div><p className="eyebrow">Passenger-provided</p><h2 className="section-title">Trip photo</h2></div><button type="button" className="button button-secondary" disabled={photoLoading} onClick={()=>{refreshedAfterFailure.current=false;void viewPhoto(true)}}>{photoLoading?"Getting secure photo…":"View photo"}</button></div><Definition items={[["Size",formatAdminBytes(detail.photo.byteSize)],["Attached",formatInTimezone(detail.photo.attachedAt,timezone)]]}/>{photoVisible&&<div className="admin-photo-viewer">{photoLoading&&<div className="skeleton" aria-label="Loading photo"/>}{photoError&&<div className="alert" role="alert"><strong>Photo unavailable</strong><div>{photoError}</div><button type="button" className="button button-secondary" onClick={()=>{refreshedAfterFailure.current=false;void viewPhoto(true)}}>Request a fresh link</button></div>}{photoAccess&&!photoLoading&&<img src={photoAccess.url} alt="Passenger-provided trip photo with the driver" onError={()=>void refreshFailedPhoto()}/>}</div>}</section>}
       <AnswerList answers={answers} />
       <div className="grid-2 detail-grid"><section className="card card-pad"><h2 className="section-title">Review history</h2>{detail.reviewHistory.length === 0 ? <p>No administrative review actions.</p> : <ol className="history-list">{detail.reviewHistory.map(event => <li key={event.id}><strong>{event.action.toLowerCase()}</strong> by {event.performedBy.displayName}<small>{formatInTimezone(event.createdAt, timezone)}{event.reason ? ` · ${event.reason}` : " · No reason supplied"}</small></li>)}</ol>}</section><details className="card card-pad technical-details"><summary>Technical details</summary><Definition items={[["Consent version", detail.consentVersionId], ["Consented at", formatInTimezone(detail.consentedAt, timezone)], ...detail.questionnaireSections.map((section)=>[`${questionnairePurposeCopy[section.purpose].label} version`,section.questionnaireVersionId] as [string,string])]} /></details></div>
     </div>
 
-    <PrintReport detail={detail} answers={answers} timezone={timezone} mode={printMode} view={view} />
+    <PrintReport detail={detail} answers={answers} timezone={timezone} mode={printMode} brand={AGENT_BRANDS[printBrand]} view={view} />
 
-    {printDialogOpen && <Modal onDismiss={() => setPrintDialogOpen(false)}><section className="dialog print-dialog" role="dialog" aria-modal="true" aria-labelledby="print-title"><p className="eyebrow">Print feedback</p><h2 id="print-title">Choose the copy type</h2><p>The selected name will be the main heading on the printed report.</p><div className="print-copy-options"><button type="button" className="print-copy-option" onClick={() => printCopy("AGENT")}><span className="print-copy-icon" aria-hidden="true">ER</span><span><strong>Agent copy</strong><small>{COMPANY_NAME} will be the primary heading.</small></span></button><button type="button" className="print-copy-option" onClick={() => printCopy("USER")}><span className="print-copy-icon" aria-hidden="true">{initials(detail.respondent.name)}</span><span><strong>User copy</strong><small>{detail.respondent.name} will be the primary heading.</small></span></button></div><div className="dialog-actions"><button className="button button-secondary" type="button" onClick={() => setPrintDialogOpen(false)}>Cancel</button></div></section></Modal>}
+    {printDialogOpen && <Modal onDismiss={() => setPrintDialogOpen(false)}>
+      <section className="dialog print-dialog" role="dialog" aria-modal="true" aria-labelledby="print-title">
+        <p className="eyebrow">Print feedback</p>
+        {printDialogStep === "COPY_TYPE" ? <>
+          <h2 id="print-title">Choose the copy type</h2>
+          <p>Choose who this printed feedback copy is for.</p>
+          <div className="print-copy-options">
+            <button type="button" className="print-copy-option" onClick={() => setPrintDialogStep("AGENT_BRAND")}><span className="print-copy-icon" aria-hidden="true">AG</span><span><strong>Agent copy</strong><small>Choose the agent name and logo for the report header.</small></span></button>
+            <button type="button" className="print-copy-option" onClick={() => printCopy("USER")}><span className="print-copy-icon" aria-hidden="true">{initials(detail.respondent.name)}</span><span><strong>User copy</strong><small>{detail.respondent.name} will be the primary heading.</small></span></button>
+          </div>
+        </> : <>
+          <h2 id="print-title">Choose the agent brand</h2>
+          <p>The selected name and logo will appear in the printed report header.</p>
+          <div className="print-copy-options">
+            {(Object.entries(AGENT_BRANDS) as Array<[AgentBrandKey, AgentBrand]>).map(([key, brand]) => <button key={key} type="button" className="print-copy-option print-brand-option" onClick={() => printCopy("AGENT", key)}><span className="print-brand-option-logo"><img src={`${basePath}/${brand.logo}`} alt="" aria-hidden="true" /></span><span><strong>{brand.name}</strong><small>Use this brand for the agent copy.</small></span></button>)}
+          </div>
+        </>}
+        <div className="dialog-actions">
+          {printDialogStep === "AGENT_BRAND" && <button className="button button-secondary" type="button" onClick={() => setPrintDialogStep("COPY_TYPE")}>Back</button>}
+          <button className="button button-secondary" type="button" onClick={() => setPrintDialogOpen(false)}>Cancel</button>
+        </div>
+      </section>
+    </Modal>}
     {action && <Modal onDismiss={() => setAction(null)}><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="review-title"><p className="eyebrow">Review action</p><h2 id="review-title">{action === "FLAGGED" ? "Flag feedback" : action === "NORMAL" ? "Unflag feedback" : "Archive feedback"}</h2><p>{action === "ARCHIVED" ? "Archiving excludes this feedback from aggregates and cannot be reversed." : "This changes only the administrative review state; submitted answers remain unchanged."}</p><div className="field"><label htmlFor="review-reason">Reason {action === "ARCHIVED" ? "(required)" : "(optional)"}</label><textarea id="review-reason" className="textarea" maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} aria-invalid={!!actionError} />{actionError && <small className="field-error" role="alert">{actionError}</small>}</div><div className="dialog-actions"><button className="button button-secondary" onClick={() => setAction(null)}>Cancel</button><button className={action === "ARCHIVED" ? "button button-danger" : "button"} disabled={busy} onClick={() => void mutate()}>{busy ? "Saving…" : action === "ARCHIVED" ? "Archive permanently" : "Confirm action"}</button></div></section></Modal>}
   </div>;
 }
@@ -170,14 +214,14 @@ function responseStrings(value: unknown, questionType?: AdminFeedbackAnswer["que
 function normalizedKey(value: string) { return value.toLowerCase().replace(/[^a-z0-9]/g, ""); }
 function unique(values: string[]) { return [...new Set(values.map(value => value.trim()).filter(Boolean))]; }
 
-function PrintReport({ detail, answers, timezone, mode, view }: { detail: AdminFeedbackDetail; answers: AdminFeedbackAnswer[]; timezone: string; mode: PrintMode; view:AdminFeedbackView }) {
+function PrintReport({ detail, answers, timezone, mode, brand, view }: { detail: AdminFeedbackDetail; answers: AdminFeedbackAnswer[]; timezone: string; mode: PrintMode; brand: AgentBrand; view:AdminFeedbackView }) {
   const userCopy = mode === "USER";
   return <article className="print-feedback-report" aria-hidden="true">
-    <header className="print-report-header"><p>{userCopy ? "User copy" : "Agent copy"}</p><h1>{userCopy ? detail.respondent.name : COMPANY_NAME}</h1><h2>{view==="DRIVER"?"Driver":"Company"} feedback report</h2><span>{userCopy ? `Issued by ${COMPANY_NAME}` : `Prepared for ${detail.respondent.name}`}</span></header>
+    <header className="print-report-header"><p>{userCopy ? "User copy" : "Agent copy"}</p>{userCopy ? <h1>{detail.respondent.name}</h1> : <div className="print-report-brand"><img src={`${basePath}/${brand.logo}`} alt="" aria-hidden="true" /><h1>{brand.name}</h1></div>}<h2>{view==="DRIVER"?"Driver":"Company"} feedback report</h2><span>{userCopy ? `Issued by ${COMPANY_NAME}` : `Prepared for ${detail.respondent.name}`}</span></header>
     <section className="print-report-summary"><div><span>Booking reference</span><strong>{detail.bookingReference}</strong></div><div><span>Submitted</span><strong>{formatInTimezone(detail.submittedAt, timezone)}</strong></div><div><span>Overall score</span><strong>{scoreLabel(detail.overallScore)}</strong></div></section>
-    <section className="print-report-details"><div><h2>Passenger</h2><Definition items={[["Name", detail.respondent.name], ["Phone", detail.respondent.phone], ["Email", detail.respondent.email]]} /></div><div><h2>Journey</h2><Definition items={[["Route", `${detail.trip.pickupLocation} → ${detail.trip.destination}`], ["Schedule", `${formatInTimezone(detail.trip.scheduledAt, timezone)} – ${formatInTimezone(detail.trip.scheduledEndAt, timezone)}`], ["Driver", detail.driver.displayName], ["Vehicle", `${detail.trip.vehicle.displayName} · ${detail.trip.vehicle.registrationNumber}`]]} /></div></section>
+    <section className="print-report-details"><div><h2>Passenger</h2><Definition items={[["Name", detail.respondent.name], ["Phone", detail.respondent.phone], ["Email", detail.respondent.email]]} /></div><div><h2>Driver engagement {detail.engagement.sequenceNumber}</h2><Definition items={[["Driver",detail.driver.displayName],["Covered trips",String(detail.trips.length)],...detail.trips.map((trip,index)=>[`Trip ${index+1}`,`${trip.pickupLocation} → ${trip.destination} · ${trip.vehicle.displayName}`] as [string,string])]} /></div></section>
     <AnswerList answers={answers} print />
-    <footer><span>{COMPANY_NAME}</span><span>Booking {detail.bookingReference}</span></footer>
+    <footer><span>{userCopy ? COMPANY_NAME : brand.name}</span><span>Booking {detail.bookingReference}</span></footer>
   </article>;
 }
 

@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import type { AdminDriver, Booking, QuestionnairePurpose, Trip, TripCreationSource, TripStatus, Vehicle } from "@/lib/contracts";
-import { ApiError, apiRequest, errorMessage, errorPresentation, getPaginated, resolveFormFieldErrors, type ApiErrorPresentation, type NormalizedFieldError } from "@/lib/api";
+import type { AdminDriver, Booking, DriverEngagement, EngagementStatus, QuestionnairePurpose, Trip, TripCreationSource, Vehicle } from "@/lib/contracts";
+import { ApiError, apiRequest, errorMessage, errorPresentation, getData, getPaginated, resolveFormFieldErrors, type ApiErrorPresentation, type NormalizedFieldError } from "@/lib/api";
 import { formatTripRange, tripSource, tripStatus } from "@/lib/status";
 import { assignmentErrorFields, changedTripFields, validateTripSchedule, type TripFieldName, type TripScheduleInput, type TripValidationErrors } from "@/lib/trip-scheduling";
 import { listQuery, pageAfterRemovingLastItem, totalPages } from "@/lib/pagination";
@@ -12,11 +12,11 @@ import { Modal } from "./modal";
 import { PaginationControl, useListSearchParams, usePaginatedList } from "./pagination";
 import { Combobox, type ComboboxOption } from "./combobox";
 import { AlertDialog } from "./alert-dialog";
-import { ShareFeedbackLinkAction, ShareFeedbackOnWhatsAppAction } from "./share-feedback-link";
-import { feedbackPurposesFromForm, questionnairePurposeCopy, questionnairePurposes, sameFeedbackPurposes } from "@/lib/feedback-sections";
+import { questionnairePurposeCopy } from "@/lib/feedback-sections";
+import { invalidateTripMutationData } from "@/lib/data-invalidation";
 
 type TripDialog = { mode: "create" } | { mode: "edit"; trip: Trip };
-type TripFormValues = TripScheduleInput & { driverId: string; feedbackPurposes?: QuestionnairePurpose[] };
+type TripFormValues = TripScheduleInput & { driverId: string };
 
 function toDateTimeLocal(isoDate: string) {
   const date = new Date(isoDate);
@@ -44,16 +44,11 @@ export function tripValuesFromForm(form: HTMLFormElement): TripFormValues {
     scheduledEndAt: localValueToIso(data.get("scheduledEndAt")),
     vehicleId: String(data.get("vehicleId") || ""),
     driverId: String(data.get("driverId") || ""),
-    feedbackPurposes: feedbackPurposesFromForm(data),
   };
 }
 
 export function changedTripValues(trip: Trip, values: TripFormValues) {
-  const patch: ReturnType<typeof changedTripFields> & { feedbackPurposes?:QuestionnairePurpose[] } = changedTripFields(trip, values);
-  if (values.feedbackPurposes && !sameFeedbackPurposes(trip.feedbackPurposes, values.feedbackPurposes)) {
-    patch.feedbackPurposes = values.feedbackPurposes;
-  }
-  return patch;
+  return changedTripFields(trip, values);
 }
 
 export function AdminTrips() {
@@ -61,16 +56,14 @@ export function AdminTrips() {
   const [drivers, setDrivers] = useState<AdminDriver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const statusValues: TripStatus[] = ["READY", "FEEDBACK_STARTED", "SUBMITTED", "ARCHIVED"];
   const sourceValues: TripCreationSource[] = ["ADMIN_ASSIGNED", "DRIVER_ENTERED"];
-  const statusParam = search.parameters.get("status") as TripStatus | null;
   const sourceParam = search.parameters.get("creationSource") as TripCreationSource | null;
-  const status = statusParam && statusValues.includes(statusParam) ? statusParam : "READY";
   const creationSource = sourceParam && sourceValues.includes(sourceParam) ? sourceParam : null;
   const driverId = search.parameters.get("driverId");
   const bookingId = search.parameters.get("bookingId");
-  const path = search.ready ? `/api/v1/admin/trips?${listQuery({ status, driverId, bookingId, creationSource, page: search.page, pageSize: search.pageSize })}` : null;
+  const path = search.ready ? `/api/v1/admin/trips?${listQuery({ driverId, bookingId, creationSource, page: search.page, pageSize: search.pageSize })}` : null;
   const list = usePaginatedList<Trip>(path);
+  const [engagementStatuses,setEngagementStatuses]=useState<Record<string,EngagementStatus>>({});
   const [dialog, setDialog] = useState<TripDialog | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiErrorPresentation | null>(null);
@@ -94,6 +87,16 @@ export function AdminTrips() {
   }, []);
 
   useEffect(() => { queueMicrotask(() => void loadOptions()); }, [loadOptions]);
+  useEffect(()=>{
+    const ids=[...new Set((list.items??[]).map(trip=>trip.engagementId).filter((id):id is string=>Boolean(id)))];
+    let active=true;
+    queueMicrotask(()=>{if(active)setEngagementStatuses({})});
+    if(!ids.length)return()=>{active=false};
+    void Promise.all(ids.map(async id=>{try{return await getData<DriverEngagement>(`/api/v1/admin/engagements/${encodeURIComponent(id)}`)}catch{return null}})).then(engagements=>{
+      if(active)setEngagementStatuses(Object.fromEntries(engagements.filter((item):item is DriverEngagement=>Boolean(item)).map(item=>[item.id,item.status])));
+    });
+    return()=>{active=false};
+  },[list.items]);
   useEffect(() => {
     if (!list.pagination) return;
     const lastPage = Math.max(1, totalPages(list.pagination.total, list.pagination.pageSize));
@@ -121,10 +124,12 @@ export function AdminTrips() {
     try {
       if (dialog.mode === "create") {
         await apiRequest("/api/v1/admin/trips", { method: "POST", body: JSON.stringify(values) });
+        invalidateTripMutationData([values.bookingId]);
       } else {
         const patch = changedTripValues(dialog.trip, values);
         if (Object.keys(patch).length === 0) { setDialog(null); return; }
         await apiRequest(`/api/v1/admin/trips/${dialog.trip.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+        invalidateTripMutationData([dialog.trip.booking.id,values.bookingId]);
       }
       setDialog(null); await list.refetch();
     } catch (cause) {
@@ -146,6 +151,7 @@ export function AdminTrips() {
     setBusy(true);
     try {
       await apiRequest(`/api/v1/admin/trips/${id}/archive`, { method: "POST" });
+      invalidateTripMutationData(pendingArchive?[pendingArchive.booking.id]:[]);
       setPendingArchive(null);
       const nextPage = pageAfterRemovingLastItem(search.page, list.items?.length ?? 0);
       if (nextPage !== search.page) search.setPage(nextPage);
@@ -157,13 +163,14 @@ export function AdminTrips() {
 
   return <>
     <div className="page-header"><div><p className="eyebrow">Journey operations</p><h1>Trips</h1><p>Create and assign trips using active drivers and vehicles. Times are shown in India Standard Time.</p></div><button className="button" onClick={() => openDialog({ mode: "create" })}>Create assigned trip</button></div>
-    <div className="toolbar"><div className="filters"><select className="select" value={status} onChange={(event) => search.update({ status: event.target.value }, true)} aria-label="Filter trip status"><option value="READY">Ready for feedback</option><option value="FEEDBACK_STARTED">Feedback started</option><option value="SUBMITTED">Feedback received</option><option value="ARCHIVED">Archived</option></select><select className="select" value={bookingId || ""} onChange={(event) => search.update({ bookingId: event.target.value || null }, true)} aria-label="Filter by booking"><option value="">All active bookings</option>{bookings.map((booking) => <option key={booking.id} value={booking.id}>{booking.bookingReference} · {booking.passengerName}</option>)}</select><select className="select" value={driverId || ""} onChange={(event) => search.update({ driverId: event.target.value || null }, true)} aria-label="Filter by driver"><option value="">All drivers</option>{drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.displayName}</option>)}</select><select className="select" value={creationSource || ""} onChange={(event) => search.update({ creationSource: event.target.value || null }, true)} aria-label="Filter by creation source"><option value="">All creation sources</option><option value="ADMIN_ASSIGNED">Admin assigned</option><option value="DRIVER_ENTERED">Driver entered</option></select></div><button className="button button-secondary" disabled={list.loading} onClick={() => void list.refetch()}>Refresh</button></div>
+    <div className="toolbar"><div className="filters"><select className="select" value={bookingId || ""} onChange={(event) => search.update({ bookingId: event.target.value || null }, true)} aria-label="Filter by booking"><option value="">All active bookings</option>{bookings.map((booking) => <option key={booking.id} value={booking.id}>{booking.bookingReference} · {booking.passengerName}</option>)}</select><select className="select" value={driverId || ""} onChange={(event) => search.update({ driverId: event.target.value || null }, true)} aria-label="Filter by driver"><option value="">All drivers</option>{drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.displayName}</option>)}</select><select className="select" value={creationSource || ""} onChange={(event) => search.update({ creationSource: event.target.value || null }, true)} aria-label="Filter by creation source"><option value="">All creation sources</option><option value="ADMIN_ASSIGNED">Admin assigned</option><option value="DRIVER_ENTERED">Driver entered</option></select></div><button className="button button-secondary" disabled={list.loading} onClick={() => void list.refetch()}>Refresh</button></div>
     {(error || list.error) && <ErrorAlert message={(error || list.error)!.message} requestId={(error || list.error)!.requestId} />}
     {list.items === null && !list.error && <LoadingCards />}
-    {list.items?.length === 0 && !error && !list.error && <EmptyState title="No trips match this view">Create a journey or choose another feedback status.</EmptyState>}
+    {list.items?.length === 0 && !error && !list.error && <EmptyState title="No trips match this view">Create a journey or adjust the operational filters.</EmptyState>}
     {list.items && list.items.length > 0 && <section className="trip-list" aria-busy={list.loading}>{list.items.map((trip) => {
-      const state = tripStatus[trip.status];
-      return <article className="card trip-card" key={trip.id}><div className="trip-card-head"><div><span className="eyebrow">{tripSource[trip.creationSource]}</span><h3><Link className="text-link" href={`/admin/bookings/detail?bookingId=${encodeURIComponent(trip.booking.id)}`}>{trip.booking.bookingReference}</Link></h3><span className="trip-meta">{trip.booking.passengerName} · {formatTripRange(trip.scheduledAt, trip.scheduledEndAt)} · {trip.driver.displayName} · {trip.vehicle.displayName}</span><FeedbackPurposeBadges purposes={trip.feedbackPurposes}/></div><StatusBadge label={state.label} tone={state.tone} /></div><div className="route"><div className="route-line"><i className="route-dot" /><i className="route-dot" /></div><div className="route-points"><span><small>Pickup</small>{trip.pickupLocation}</span><span><small>Destination</small>{trip.destination}</span></div></div>{trip.status !== "ARCHIVED" && <div className="trip-actions">{(trip.status === "READY" || trip.status === "FEEDBACK_STARTED") && <ShareFeedbackOnWhatsAppAction tripId={trip.id} recipientName={trip.booking.passengerName} editHref={`/admin/bookings/edit?bookingId=${encodeURIComponent(trip.booking.id)}`}/>} {(trip.status === "READY" || trip.status === "FEEDBACK_STARTED") && <ShareFeedbackLinkAction tripId={trip.id} audience="admin"/>}{trip.status === "READY" && <button className="button button-secondary" disabled={busy} onClick={() => openDialog({ mode: "edit", trip })}>Edit trip</button>}<button className="button button-secondary" disabled={busy} onClick={() => setPendingArchive(trip)}>Archive trip</button></div>}</article>;
+      const engagementStatus=trip.engagementId?engagementStatuses[trip.engagementId]:undefined;
+      const state=trip.status==="ARCHIVED"?tripStatus.ARCHIVED:engagementStatus?tripStatus[engagementStatus]:{label:trip.engagementId?"Checking feedback…":"No engagement",tone:"neutral"};
+      return <article className="card trip-card" key={trip.id}><div className="trip-card-head"><div><span className="eyebrow">{tripSource[trip.creationSource]}</span><h3><Link className="text-link" href={`/admin/bookings/detail?bookingId=${encodeURIComponent(trip.booking.id)}`}>{trip.booking.bookingReference}</Link></h3><span className="trip-meta">{trip.booking.passengerName} · {formatTripRange(trip.scheduledAt, trip.scheduledEndAt)} · {trip.driver.displayName} · {trip.vehicle.displayName}</span>{trip.engagementId&&<small className="field-help">Part of a driver engagement · feedback is managed from the booking</small>}</div><StatusBadge label={state.label} tone={state.tone} /></div><div className="route"><div className="route-line"><i className="route-dot" /><i className="route-dot" /></div><div className="route-points"><span><small>Pickup</small>{trip.pickupLocation}</span><span><small>Destination</small>{trip.destination}</span></div></div>{trip.status !== "ARCHIVED" && <div className="trip-actions">{trip.engagementId&&<Link className="button button-secondary" href={`/admin/bookings/detail?bookingId=${encodeURIComponent(trip.booking.id)}`}>View engagement</Link>}{engagementStatus === "READY" && <button className="button button-secondary" disabled={busy} onClick={() => openDialog({ mode: "edit", trip })}>Edit trip</button>}<button className="button button-secondary" disabled={busy} onClick={() => setPendingArchive(trip)}>Archive trip</button></div>}</article>;
     })}</section>}
     {list.pagination && <PaginationControl {...list.pagination} page={search.page} loading={list.loading} onPageChange={(page) => search.setPage(page, totalPages(list.pagination!.total, list.pagination!.pageSize))} onPageSizeChange={search.setPageSize} />}
     {dialog && <Modal onDismiss={() => !busy && setDialog(null)}><TripForm mode={dialog.mode} trip={dialog.mode === "edit" ? dialog.trip : undefined} bookings={bookings} drivers={drivers} vehicles={vehicles} busy={busy} error={dialogError} fieldErrors={fieldErrors} backendSummary={backendSummary} onCancel={() => setDialog(null)} onSubmit={submit} /></Modal>}
@@ -219,15 +226,8 @@ function TripForm({ mode, trip, bookings, drivers, vehicles, busy, error, fieldE
     <ScheduleFields trip={trip} fieldErrors={fieldErrors} />
     <Combobox id="driverId" name="driverId" label="Active driver" options={driverOptions} defaultValue={trip?.driver.id} placeholder="Search by driver name or code" emptyMessage="No drivers match that search" error={fieldErrors.driverId} hint="Searches the active drivers currently loaded." required />
     <Combobox id="vehicleId" name="vehicleId" label="Active vehicle" options={vehicleOptions} defaultValue={trip?.vehicle.id} placeholder="Search by vehicle name or registration" emptyMessage="No vehicles match that search" error={fieldErrors.vehicleId} hint="Searches the active vehicles currently loaded." required />
-    <FeedbackSectionFields trip={trip}/>
     <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={busy} onClick={onCancel}>Cancel</button><button className="button" disabled={busy}>{busy ? "Saving…" : mode === "edit" ? "Save changes" : "Create trip"}</button></div>
   </form>;
-}
-
-export function FeedbackSectionFields({ trip }: { trip?:Trip }) {
-  const [recommended,setRecommended]=useState(!trip);
-  const [selected,setSelected]=useState<QuestionnairePurpose[]>(trip?.feedbackPurposes??["ARRIVAL_EXPERIENCE","DRIVER_FEEDBACK"]);
-  return <fieldset className="feedback-section-fieldset"><legend>Feedback sections</legend>{!trip&&<label className="check-row"><input type="checkbox" checked={recommended} onChange={(event)=>setRecommended(event.target.checked)}/><span>Use recommended selection<small>The backend adds Driver feedback and adds Arrival feedback when this booking has no arrival section yet.</small></span></label>}<input type="hidden" name="feedbackSelectionMode" value={recommended?"recommended":"custom"}/>{!recommended&&<div className="feedback-section-options">{questionnairePurposes.map((purpose)=><label className="check-row" key={purpose}><input type="checkbox" name="feedbackPurposes" value={purpose} checked={selected.includes(purpose)} onChange={(event)=>setSelected((current)=>event.target.checked?[...current,purpose]:current.filter((item)=>item!==purpose))}/><span>{questionnairePurposeCopy[purpose].label}<small>{questionnairePurposeCopy[purpose].help}</small></span></label>)}</div>}{recommended&&<p className="field-help">Choose custom selection to add Tour feedback or override the recommended sections.</p>}{trip&&<p className="field-help">Changing these sections invalidates any previously shared feedback link.</p>}</fieldset>;
 }
 
 export function FeedbackPurposeBadges({ purposes }:{purposes:readonly QuestionnairePurpose[]}) {

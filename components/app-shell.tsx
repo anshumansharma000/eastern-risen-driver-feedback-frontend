@@ -35,8 +35,8 @@ const adminNav = [
   ["/admin/questionnaires", "Questionnaires"],
   ["/admin/consent", "Consent"],
   ["/admin/feedback", "Feedback"],
-  ["/admin/rewards", "Rewards"],
-  ["/admin/reports", "Reports"],
+  // ["/admin/rewards", "Rewards"],
+  // ["/admin/reports", "Reports"],
   ["/admin/settings", "Settings"],
   ["/admin/profile", "Profile"],
 ] as const;
@@ -57,7 +57,6 @@ export function AppShell({
   const [checkingSession, setCheckingSession] = useState(true);
   const [sessionError,setSessionError]=useState<ApiErrorPresentation|null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
-  const unavailable = new Set(["/admin/rewards", "/admin/reports"]);
   const refreshIdentity = useCallback(async () => {
     try {
       const result = await getData<{ user: Principal }>("/api/v1/auth/me");
@@ -113,10 +112,8 @@ export function AppShell({
             href={href}
             data-active={active}
             aria-current={active ? "page" : undefined}
-            className={unavailable.has(href) ? "unavailable-link" : undefined}
           >
             {itemLabel}
-            {unavailable.has(href) && <small>Soon</small>}
           </Link>
         );
       })}

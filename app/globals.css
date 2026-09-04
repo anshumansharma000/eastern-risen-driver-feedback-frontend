@@ -94,7 +94,7 @@ a { color: inherit; text-decoration: none; }
 .support-details { margin-top:.65rem; }.support-details summary { cursor:pointer; font-weight:650; }.support-details dl { display:grid; gap:.35rem; margin:.55rem 0 0; }.support-details dl div { display:grid; grid-template-columns:minmax(7rem,auto) 1fr; gap:.5rem; }.support-details dt { font-weight:650; }.support-details dd { margin:0; overflow-wrap:anywhere; }
 
 .app-layout { min-height: 100vh; display: grid; grid-template-columns: 270px minmax(0,1fr); }
-.sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 1.75rem 1.15rem; border-right: 1px solid var(--border); background: #f1e9df; }.side-nav { display: grid; gap: .3rem; margin-top: 3rem; }.side-nav a,.side-nav button { min-height: 46px; display: flex; align-items: center; gap: .75rem; border: 0; border-radius: 9px; padding: .65rem .85rem; background: transparent; color: #564c45; font-weight: 650; text-align: left; cursor: pointer; }.side-nav a:hover,.side-nav a[data-active="true"],.side-nav button:hover { background: #e7d5c6; color: var(--primary); }.side-nav .unavailable-link { opacity: .58; }.side-footer { margin-top: auto; border-top: 1px solid var(--border); padding-top: 1rem; color: var(--muted-foreground); font-size: .8rem; }
+.sidebar { position: sticky; top: 0; height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 1.75rem 1.15rem; border-right: 1px solid var(--border); background: #f1e9df; }.side-nav { min-height: 0; flex: 1 1 auto; align-content: start; display: grid; gap: .3rem; margin: 3rem 0 1rem; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }.side-nav a,.side-nav button { min-height: 46px; display: flex; align-items: center; gap: .75rem; border: 0; border-radius: 9px; padding: .65rem .85rem; background: transparent; color: #564c45; font-weight: 650; text-align: left; cursor: pointer; }.side-nav a:hover,.side-nav a[data-active="true"],.side-nav button:hover { background: #e7d5c6; color: var(--primary); }.side-footer { flex: 0 0 auto; border-top: 1px solid var(--border); padding-top: 1rem; color: var(--muted-foreground); font-size: .8rem; }
 .app-main { min-width: 0; }.topbar { min-height: 78px; display: flex; align-items: center; justify-content: space-between; gap:1rem; padding: 0 clamp(1.2rem,4vw,3.5rem); border-bottom: 1px solid var(--border); background: color-mix(in srgb,var(--background) 93%, transparent); }.mobile-brand,.mobile-menu-button,.mobile-nav-panel,.driver-bottom-nav { display:none; }.account { display:flex; align-items:center; gap:.65rem; color:var(--muted-foreground); font-size:.87rem; }.driver-profile-menu { display:none; position:relative; }
 .topbar-actions { margin-left:auto; display:flex; align-items:center; gap:1rem; }
 .profile-menu { position:relative; }
@@ -164,6 +164,27 @@ a { color: inherit; text-decoration: none; }
 .feedback-section-options,.review-sections { display:grid; gap:.8rem; }
 .feedback-purpose-badges { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.6rem; }
 .feedback-purpose-badges span { padding:.25rem .55rem; border:1px solid var(--border); border-radius:999px; background:var(--surface-subtle); color:var(--muted-foreground); font-size:.72rem; font-weight:800; }
+.booking-engagement-card { padding:0; overflow:hidden; }
+.booking-engagement-header { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:1rem; padding:1.25rem 1.35rem; border-bottom:1px solid var(--border); }
+.booking-engagement-identity { min-width:0; }
+.booking-engagement-identity h3 { margin:.25rem 0; font:500 1.5rem var(--font-display); overflow-wrap:anywhere; }
+.booking-engagement-identity p { margin:0; color:var(--muted-foreground); font-size:.82rem; }
+.booking-engagement-sections { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.85rem 1.35rem; background:var(--surface-subtle); border-bottom:1px solid var(--border); }
+.booking-engagement-sections > div { display:grid; min-width:0; gap:.5rem; }
+.booking-engagement-sections > div > span,.booking-engagement-section-title > span { color:var(--muted-foreground); font-size:.72rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.booking-engagement-sections .feedback-purpose-badges { justify-content:flex-start; margin:0; }
+.booking-engagement-trips { padding:1.1rem 1.35rem; }
+.booking-engagement-section-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:.8rem; }
+.booking-engagement-section-title strong { display:grid; place-items:center; min-width:1.65rem; height:1.65rem; padding:0 .4rem; border-radius:999px; background:var(--surface-subtle); font-size:.75rem; }
+.booking-engagement-trips ol { display:grid; gap:.8rem; margin:0; padding:0; list-style:none; }
+.booking-engagement-trips li { display:grid; grid-template-columns:1.75rem minmax(0,1fr); gap:.75rem; align-items:start; }
+.booking-engagement-trip-number { display:grid; place-items:center; width:1.65rem; height:1.65rem; border:1px solid var(--border); border-radius:50%; color:var(--primary); font-size:.72rem; font-weight:800; }
+.booking-engagement-trips li div { display:grid; min-width:0; gap:.15rem; }
+.booking-engagement-trips li strong { overflow-wrap:anywhere; }
+.booking-engagement-trips li small { color:var(--muted-foreground); }
+.booking-engagement-actions { display:flex; justify-content:flex-end; align-items:flex-start; flex-wrap:wrap; gap:.65rem; padding:1rem 1.35rem; border-top:1px solid var(--border); }
+.booking-engagement-actions .whatsapp-share { max-width:100%; }
+@media (max-width:640px) { .booking-engagement-header { grid-template-columns:1fr; }.booking-engagement-sections { align-items:stretch; flex-direction:column; }.booking-engagement-sections > button { width:100%; }.booking-engagement-actions { justify-content:stretch; }.booking-engagement-actions > *,.booking-engagement-actions button { width:100%; } }
 .booking-feedback-warning { margin-bottom:.75rem; }
 .feedback-view-switcher { justify-content:flex-start; }
 .feedback-view-switcher .field { width:min(100%,320px); }
@@ -192,6 +213,8 @@ a { color: inherit; text-decoration: none; }
 .print-copy-option > span:last-child { display:grid; gap:.2rem; }
 .print-copy-option small { color:var(--muted-foreground); font-weight:500; }
 .print-copy-icon { width:2.75rem; height:2.75rem; display:grid; flex:0 0 auto; place-items:center; border-radius:50%; background:var(--surface-subtle); color:var(--primary); font-size:.76rem; font-weight:900; letter-spacing:.04em; }
+.print-brand-option-logo { width:5rem; height:3.5rem; display:grid; flex:0 0 auto; place-items:center; padding:.25rem; border-radius:8px; background:#fff; }
+.print-brand-option-logo img { width:100%; height:100%; display:block; object-fit:contain; }
 .print-feedback-report { display:none; }
 .admin-photo-card { margin-top:1rem; }.admin-photo-card .section-title { margin-bottom:.35rem; }.admin-photo-card .definition-list { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:.8rem; }.admin-photo-viewer { margin-top:1rem; }.admin-photo-viewer img { width:100%; max-height:72vh; display:block; object-fit:contain; border-radius:12px; background:#25211f; }.admin-photo-viewer .alert .button { margin-top:.8rem; }
 
@@ -215,6 +238,8 @@ a { color: inherit; text-decoration: none; }
   .print-feedback-report { display:block; width:100%; padding:6mm; }
   .print-report-header { padding-bottom:7mm; border-bottom:2px solid #171717; }
   .print-report-header p { margin:0 0 2mm; color:#555; font-size:8pt; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+  .print-report-brand { display:flex; align-items:center; gap:6mm; }
+  .print-report-brand img { width:auto; max-width:48mm; height:auto; max-height:18mm; flex:0 0 auto; object-fit:contain; }
   .print-report-header h1 { max-width:180mm; margin:0; font:700 25pt/1.08 Georgia,"Times New Roman",serif; letter-spacing:-.02em; }
   .print-report-header h2 { margin:3mm 0 1mm; font:500 14pt Georgia,"Times New Roman",serif; }
   .print-report-header span { color:#555; }

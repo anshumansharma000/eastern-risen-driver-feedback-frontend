@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PaginatedResponse } from "@/lib/contracts";
 import { errorPresentation, getPaginated, type ApiErrorPresentation } from "@/lib/api";
 import { boundedPage, DEFAULT_PAGE, DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, positiveInteger, totalPages, updateListSearch } from "@/lib/pagination";
+import { DATA_INVALIDATED_EVENT } from "@/lib/data-invalidation";
 
 type ListError = ApiErrorPresentation | null;
 
@@ -76,6 +77,7 @@ export function usePaginatedList<T>(path: string | null) {
 
   useEffect(() => { queueMicrotask(() => void load()); }, [load]);
   useEffect(()=>{const refresh=()=>void load();window.addEventListener("api-stale-state",refresh);return()=>window.removeEventListener("api-stale-state",refresh)},[load]);
+  useEffect(()=>{const refresh=()=>void load();window.addEventListener(DATA_INVALIDATED_EVENT,refresh);return()=>window.removeEventListener(DATA_INVALIDATED_EVENT,refresh)},[load]);
   return { response, items: response?.data ?? null, pagination: response?.pagination ?? null, error, loading, refetch: load };
 }
 

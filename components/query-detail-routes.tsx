@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AdminDriverDetail } from "./admin-driver-detail";
 import { AdminFeedbackDetailView } from "./admin-feedback-detail";
-import { DriverTripDetail } from "./driver-trip-detail";
+import { DriverEngagementDetail } from "./driver-trip-detail";
 import { QuestionnaireEditor } from "./questionnaire-editor";
 import { EmptyState } from "./ui";
 
@@ -32,10 +32,10 @@ export function QuestionnaireDetailRoute() {
 }
 
 export function DriverTripDetailRoute() {
-  const tripId = useRequiredParameter("tripId");
-  return tripId
-    ? <main className="page"><DriverTripDetail id={tripId} /></main>
-    : <MissingRecord title="Choose a trip" copy="Open a journey from your trip list to view this page." href="/driver/trips" label="Back to journeys" />;
+  const engagementId = useRequiredParameter("engagementId");
+  return engagementId
+    ? <main className="page"><DriverEngagementDetail id={engagementId} /></main>
+    : <MissingRecord title="Choose an engagement" copy="Open an engagement from your list to view this page." href="/driver/trips" label="Back to engagements" />;
 }
 
 function useRequiredParameter(name: string): string | null {
