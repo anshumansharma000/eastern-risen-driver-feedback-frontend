@@ -22,6 +22,7 @@ const friendly:Record<string,string>={
   BOOKING_PERIOD_EXCLUDES_TRIPS:"The new booking period would exclude one or more existing trips.",BOOKING_NOT_FOUND:"This booking is no longer available.",TRIP_NOT_FOUND:"This trip is unavailable or is not assigned to you.",
   BOOKING_NOT_EDITABLE:"This booking can no longer be edited.",ACTIVE_BOOKING_NOT_FOUND:"Choose an active booking for this trip.",TRIP_OUTSIDE_BOOKING_PERIOD:"The trip must start and end within the booking period.",
   INVALID_DRIVER_LICENSE_PERIOD:"License expiry date must be after the issue date.",ACCOUNT_EMAIL_ALREADY_EXISTS:"That email address is already used by another account.",CURRENT_PASSWORD_INVALID:"The current password is incorrect.",
+  VEHICLE_REGISTRATION_ALREADY_EXISTS:"This registration number is already in use.",
   PASSWORD_REUSE_NOT_ALLOWED:"Choose a password you have not used before.",PROFILE_NOT_FOUND:"This profile is no longer available.",DRIVER_NOT_FOUND:"This driver is no longer available.",REQUEST_VALIDATION_FAILED:"One or more fields need your attention.",
   ADMIN_ACCESS_REQUIRED:"Administrator access is required.",DRIVER_ACCESS_REQUIRED:"Driver access is required.",INTERNAL_SERVER_ERROR:"The service encountered a problem. Your information is still here; try again.",
   SERVICE_UNAVAILABLE:"The service is temporarily unavailable. Your information is still here; try again.",

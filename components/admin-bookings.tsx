@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import type { AdminDriver, Booking, BookingDetail, BookingStatus, CreateBookingRequest, DriverEngagement, QuestionnairePurpose, UpdateBookingRequest, Vehicle } from "@/lib/contracts";
+import type { AdminDriver, Booking, BookingDetail, BookingStatus, CreateBookingRequest, DriverEngagement, QuestionnairePurpose, UpdateBookingRequest, VehicleSummary } from "@/lib/contracts";
 import { ApiError, apiRequest, errorPresentation, focusFirstInvalidField, getData, getPaginated, resolveFormFieldErrors, type ApiErrorPresentation, type NormalizedFieldError } from "@/lib/api";
 import { canonicalPassengerPhone, E164_ERROR, passengerPhoneError } from "@/lib/booking-phone";
 import { bookingMetadataErrors, bookingMetadataFromForm, FILE_NUMBER_MAX_LENGTH, TOUR_NAME_MAX_LENGTH, type BookingMetadata } from "@/lib/booking-metadata";
@@ -119,8 +119,8 @@ function BookingEngagement({engagement,passengerPhone,editHref}:{engagement:Driv
 }
 
 function AddTrip({booking,onSaved,onCancel}:{booking:BookingDetail;onSaved:()=>void;onCancel:()=>void}) {
-  const [drivers,setDrivers]=useState<AdminDriver[]>([]);const [vehicles,setVehicles]=useState<Vehicle[]>([]);const [busy,setBusy]=useState(false);const [error,setError]=useState<Notice>(null);const [periodError,setPeriodError]=useState("");
-  useEffect(()=>{void Promise.all([getPaginated<AdminDriver>("/api/v1/admin/drivers?status=ACTIVE&page=1&pageSize=100"),getPaginated<Vehicle>("/api/v1/admin/vehicles?status=ACTIVE&page=1&pageSize=100")]).then(([d,v])=>{setDrivers(d.data);setVehicles(v.data)}).catch((cause)=>setError(notice(cause)))},[]);
+  const [drivers,setDrivers]=useState<AdminDriver[]>([]);const [vehicles,setVehicles]=useState<VehicleSummary[]>([]);const [busy,setBusy]=useState(false);const [error,setError]=useState<Notice>(null);const [periodError,setPeriodError]=useState("");
+  useEffect(()=>{void Promise.all([getPaginated<AdminDriver>("/api/v1/admin/drivers?status=ACTIVE&page=1&pageSize=100"),getPaginated<VehicleSummary>("/api/v1/admin/vehicles?status=ACTIVE&page=1&pageSize=100")]).then(([d,v])=>{setDrivers(d.data);setVehicles(v.data)}).catch((cause)=>setError(notice(cause)))},[]);
   const driverOptions:ComboboxOption[]=drivers.map((driver)=>({value:driver.id,label:driver.displayName,description:`${driver.driverCode} · ${driver.sourceType==="AGENCY"?"Agency":driver.vendorName||"Outsourced"}`,disabled:!driver.assignmentEnabled}));
   const vehicleOptions:ComboboxOption[]=vehicles.map((vehicle)=>({value:vehicle.id,label:vehicle.displayName,description:vehicle.registrationNumber,keywords:vehicle.registrationNumber}));
   async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();const data=new FormData(event.currentTarget);const scheduledAt=iso(data.get("scheduledAt"));const scheduledEndAt=iso(data.get("scheduledEndAt"));if(!scheduledAt||!scheduledEndAt||Date.parse(scheduledEndAt)<=Date.parse(scheduledAt)||Date.parse(scheduledAt)<Date.parse(booking.startsAt)||Date.parse(scheduledEndAt)>Date.parse(booking.endsAt)){setPeriodError("Trip start and end must be ordered and fall within the booking period.");return}setBusy(true);setError(null);try{await apiRequest("/api/v1/admin/trips",{method:"POST",body:JSON.stringify({bookingId:booking.id,pickupLocation:String(data.get("pickupLocation")||"").trim(),destination:String(data.get("destination")||"").trim(),scheduledAt,scheduledEndAt,driverId:String(data.get("driverId")||""),vehicleId:String(data.get("vehicleId")||"")})});invalidateTripMutationData([booking.id]);await onSaved()}catch(cause){setError(notice(cause))}finally{setBusy(false)}}

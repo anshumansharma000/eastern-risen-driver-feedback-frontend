@@ -28,6 +28,66 @@ import { buildE164, E164_PATTERN, optionalPhoneValue, parsePhoneValue, PHONE_COU
 import { buildWhatsAppFeedbackMessage, buildWhatsAppShareUrl, openAdminFeedbackOnWhatsApp, openFeedbackOnWhatsApp } from "../lib/whatsapp-feedback.ts";
 import { omitPhotoForOffline, PHOTO_ACCEPT, PHOTO_PRELIMINARY_MAX_BYTES, uploadDirectToR2, uploadPassengerPhoto, validatePhotoFile } from "../lib/photo-upload.ts";
 import { engagementCards } from "../lib/engagements.ts";
+import { createVehiclePayload, updateVehiclePayload, validateVehicleForm } from "../lib/vehicles.ts";
+
+function formData(values) {
+  const data = new FormData();
+  for (const [field, value] of Object.entries(values)) data.set(field, value);
+  return data;
+}
+
+const fullVehicle = {
+  id:"vehicle-1", displayName:"Mountain Traveller", registrationNumber:"OD02AB1234", vehicleType:"SUV",
+  registeredOwner:"Synthetic Owner", address:"Bhubaneswar", contactNumber:"09876543210",
+  accountNumber:"001234567890", ifscCode:"SYNTH0001234", bankName:"Synthetic Bank",
+  status:"ACTIVE", createdAt:"2026-01-01T00:00:00Z", updatedAt:"2026-01-01T00:00:00Z", archivedAt:null,
+};
+
+test("vehicle creation requires vehicleType and omits blank optional owner fields", () => {
+  const missingType = formData({ displayName:"Mountain Traveller", registrationNumber:"OD02AB1234", vehicleType:"" });
+  assert.equal(validateVehicleForm(missingType).vehicleType, "This field is required.");
+  const payload = createVehiclePayload(formData({
+    displayName:"  Mountain Traveller  ", registrationNumber:" OD02AB1234 ", vehicleType:" SUV ",
+    registeredOwner:"", address:"  ", contactNumber:"", accountNumber:"", ifscCode:"", bankName:"",
+  }));
+  assert.deepEqual(payload, { displayName:"Mountain Traveller", registrationNumber:"OD02AB1234", vehicleType:"SUV" });
+});
+
+test("vehicle create and edit payloads preserve strings and send only changed fields", () => {
+  const created = createVehiclePayload(formData({
+    displayName:"Mountain Traveller", registrationNumber:"OD02AB1234", vehicleType:"SUV",
+    accountNumber:"001234567890", contactNumber:"09876543210",
+  }));
+  assert.equal(created.accountNumber, "001234567890");
+  assert.equal(created.contactNumber, "09876543210");
+  const edited = updateVehiclePayload(fullVehicle, formData({
+    displayName:"Mountain Traveller", registrationNumber:"OD02AB1234", vehicleType:"Premium SUV",
+    registeredOwner:"", address:"Bhubaneswar", contactNumber:"09876543210",
+    accountNumber:"001234567890", ifscCode:"SYNTH0001234", bankName:"Synthetic Bank",
+  }));
+  assert.deepEqual(edited, { vehicleType:"Premium SUV", registeredOwner:null });
+  assert.equal(updateVehiclePayload(fullVehicle, formData({
+    displayName:"Mountain Traveller", registrationNumber:"OD02AB1234", vehicleType:"SUV",
+    registeredOwner:"Synthetic Owner", address:"Bhubaneswar", contactNumber:"09876543210",
+    accountNumber:"001234567890", ifscCode:"SYNTH0001234", bankName:"Synthetic Bank",
+  })).accountNumber, undefined);
+});
+
+test("expanded admin vehicle rendering stays isolated from passenger and driver surfaces", () => {
+  const admin = readFileSync(new URL("../components/admin-vehicles.tsx", import.meta.url), "utf8");
+  for (const field of ["displayName","registrationNumber","vehicleType","registeredOwner"]) assert.match(admin, new RegExp(`vehicle\\.${field}`));
+  assert.match(admin, /Not provided/);
+  assert.match(admin, /method: dialog\.mode === "create" \? "POST" : "PATCH"/);
+  const restrictedSources = [
+    "../components/passenger-flow.tsx", "../components/driver-home.tsx", "../components/driver-trip-detail.tsx",
+    "../components/trip-card.tsx", "../components/admin-trips.tsx", "../components/admin-bookings.tsx",
+  ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
+  for (const privateField of ["registeredOwner","address","contactNumber","accountNumber","ifscCode","bankName"]) {
+    assert.doesNotMatch(restrictedSources, new RegExp(`\\.${privateField}\\b`));
+  }
+  const contracts = readFileSync(new URL("../lib/contracts.ts", import.meta.url), "utf8");
+  assert.match(contracts, /interface VehicleSummary \{ id: string; registrationNumber: string; displayName: string; status\?: LifecycleStatus \}/);
+});
 
 test("backend engagement groups render in sequence with derived sections and trip counts", () => {
   const make=(id,sequenceNumber,driverName,tripCount,feedbackPurposes)=>({id,sequenceNumber,driver:{displayName:driverName},trips:Array.from({length:tripCount},(_,i)=>({id:`${id}-${i}`})),feedbackPurposes});
@@ -830,6 +890,19 @@ test("profile changes include only editable fields that actually changed", () =>
   assert.equal(passwordValidation("short", "short"), "Use between 12 and 128 characters.");
   assert.equal(passwordValidation("synthetic-password-1", "synthetic-password-2"), "The new passwords do not match.");
   assert.equal(passwordValidation("synthetic-password-1", "synthetic-password-1"), null);
+});
+
+test("administrator profile is reachable from desktop and mobile navigation and refreshes shell identity", () => {
+  const shell = readFileSync(new URL("../components/app-shell.tsx", import.meta.url), "utf8");
+  const profile = readFileSync(new URL("../components/profile-page.tsx", import.meta.url), "utf8");
+  assert.match(shell, /\["\/admin\/profile", "Profile"\]/);
+  assert.match(shell, /mobile-nav-panel/);
+  assert.match(shell, /navigation\(`\$\{role\} mobile navigation`\)/);
+  assert.match(shell, /href=\{`\/\$\{role\}\/profile`\}/);
+  assert.match(profile, /await updateAdminProfile\(patch\)/);
+  assert.match(profile, /window\.dispatchEvent\(new Event\("identity-refresh"\)\)/);
+  assert.match(profile, /clearPrivateClientState\(\)/);
+  assert.match(profile, /reason=password-changed/);
 });
 
 test("all profile and direct-reset endpoints use the central client, session credentials, and bodyless 204 responses", async () => {

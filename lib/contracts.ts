@@ -70,7 +70,31 @@ export interface DriverLicense {
 export interface Vendor { id:string; name:string; contactName:string|null; contactEmail:string|null; contactPhone:E164Phone|null; status:LifecycleStatus; createdAt:string; updatedAt:string; archivedAt:string|null }
 export interface AdminDriver extends DriverSummary { accountId:string; email:string; phone:E164Phone|null; status:LifecycleStatus; license:DriverLicense|null; createdAt:string; updatedAt:string; archivedAt:string|null }
 export interface CreateVendorRequest { name:string; contactName:string|null; contactEmail:string|null; contactPhone:E164Phone|null }
-export interface Vehicle extends VehicleSummary { status:LifecycleStatus; createdAt:string; updatedAt:string; archivedAt:string|null }
+export interface Vehicle extends VehicleSummary {
+  vehicleType:string;
+  registeredOwner:string|null;
+  address:string|null;
+  contactNumber:string|null;
+  accountNumber:string|null;
+  ifscCode:string|null;
+  bankName:string|null;
+  status:LifecycleStatus;
+  createdAt:string;
+  updatedAt:string;
+  archivedAt:string|null;
+}
+export interface CreateVehicleRequest {
+  registrationNumber:string;
+  displayName:string;
+  vehicleType:string;
+  registeredOwner?:string|null;
+  address?:string|null;
+  contactNumber?:string|null;
+  accountNumber?:string|null;
+  ifscCode?:string|null;
+  bankName?:string|null;
+}
+export type UpdateVehicleRequest = Partial<CreateVehicleRequest>;
 export interface QuestionnaireSummary { id:string; name:string; purpose:QuestionnairePurpose; status:"ACTIVE"|"ARCHIVED"; createdAt:string; updatedAt:string; archivedAt:string|null }
 export type QuestionnaireVersionStatus="DRAFT"|"ACTIVE"|"RETIRED"|"ARCHIVED";
 export interface QuestionnaireVersionSummary { id:string; questionnaireId:string; purpose:QuestionnairePurpose; versionNumber:number; status:QuestionnaireVersionStatus; publishedAt:string|null; retiredAt:string|null; createdAt:string; updatedAt:string }

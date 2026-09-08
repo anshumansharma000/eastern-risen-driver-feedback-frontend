@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import type { CreateVendorRequest, LifecycleStatus, Vehicle, Vendor } from "@/lib/contracts";
+import type { CreateVendorRequest, LifecycleStatus, Vendor } from "@/lib/contracts";
 import { apiRequest, errorPresentation, type ApiErrorPresentation } from "@/lib/api";
 import { listQuery, pageAfterRemovingLastItem, totalPages } from "@/lib/pagination";
 import { lifecycleStatus } from "@/lib/status";
@@ -11,21 +11,21 @@ import { PaginationControl, useListSearchParams, usePaginatedList } from "./pagi
 import { AdminDrivers } from "./admin-drivers";
 import { PhoneInput } from "./phone-input";
 import { optionalPhoneValue, phoneError } from "@/lib/phone";
+import { AdminVehicles } from "./admin-vehicles";
 
 type Resource = "vendors" | "vehicles" | "drivers";
-type DirectoryResource = Exclude<Resource, "drivers">;
-type Item = Vendor | Vehicle;
+type DirectoryResource = "vendors";
+type Item = Vendor;
 const titles = {
   vendors: ["Vendors", "Manage the companies that supply outsourced drivers."],
-  vehicles: ["Vehicles", "Maintain the active fleet used when trips are created."],
 } as const;
 const lifecycleValues: LifecycleStatus[] = ["ACTIVE", "DEACTIVATED", "ARCHIVED"];
 
-function primary(item: Item) { return "name" in item ? item.name : item.displayName; }
-function secondary(item: Item) { return "contactName" in item ? (item.contactName || item.contactEmail || "No contact details") : item.registrationNumber; }
+function primary(item: Item) { return item.name; }
+function secondary(item: Item) { return item.contactName || item.contactEmail || "No contact details"; }
 
 export function AdminResources({ resource }: { resource: Resource }) {
-  return resource === "drivers" ? <AdminDrivers /> : <ResourceDirectory resource={resource} />;
+  return resource === "drivers" ? <AdminDrivers /> : resource === "vehicles" ? <AdminVehicles /> : <ResourceDirectory resource={resource} />;
 }
 
 function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
@@ -51,12 +51,10 @@ function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
     event.preventDefault();
     setBusy(true); setMutationError(null);
     const data = new FormData(event.currentTarget);
-    const invalidPhone = resource === "vendors" ? phoneError(String(data.get("contactPhone") || ""), true) : null;
+    const invalidPhone = phoneError(String(data.get("contactPhone") || ""), true);
     setPhoneFieldError(invalidPhone || "");
     if (invalidPhone) { setBusy(false); return; }
-    const body = resource === "vendors"
-      ? { name: String(data.get("name") || "").trim(), contactName: String(data.get("contactName") || "").trim() || null, contactEmail: String(data.get("contactEmail") || "").trim() || null, contactPhone: optionalPhoneValue(data.get("contactPhone")) } satisfies CreateVendorRequest
-      : { displayName: data.get("displayName"), registrationNumber: data.get("registrationNumber") };
+    const body = { name: String(data.get("name") || "").trim(), contactName: String(data.get("contactName") || "").trim() || null, contactEmail: String(data.get("contactEmail") || "").trim() || null, contactPhone: optionalPhoneValue(data.get("contactPhone")) } satisfies CreateVendorRequest;
     try {
       await apiRequest(`/api/v1/admin/${resource}`, { method: "POST", body: JSON.stringify(body) });
       setShowForm(false);
@@ -88,10 +86,10 @@ function ResourceDirectory({ resource }: { resource: DirectoryResource }) {
     {list.items?.length === 0 && !error && <EmptyState title={`No ${status.toLowerCase()} ${resource}`}>Create the first record or choose another lifecycle filter.</EmptyState>}
     {list.items && list.items.length > 0 && <section className="card data-list" aria-busy={list.loading}><div className="data-row data-head"><span>Name</span><span>Details</span><span>Status</span><span>Actions</span></div>{list.items.map((item) => {
       const state = lifecycleStatus[item.status];
-      return <div className="data-row" key={item.id}><span><strong>{primary(item)}</strong><small>{"contactEmail" in item ? item.contactEmail : "Fleet record"}</small></span><span>{secondary(item)}</span><StatusBadge label={state.label} tone={state.tone} /><span>{item.status === "ACTIVE" ? <button className="button button-secondary" disabled={busy} onClick={() => void changeStatus(item, "DEACTIVATED")}>Deactivate</button> : item.status === "DEACTIVATED" ? <><button className="button button-secondary" disabled={busy} onClick={() => void changeStatus(item, "ACTIVE")}>Activate</button> <button className="button button-secondary" disabled={busy} onClick={() => void changeStatus(item, "ARCHIVED")}>Archive</button></> : <span className="trip-meta">Read-only history</span>}</span></div>;
+      return <div className="data-row" key={item.id}><span><strong>{primary(item)}</strong><small>{item.contactEmail}</small></span><span>{secondary(item)}</span><StatusBadge label={state.label} tone={state.tone} /><span>{item.status === "ACTIVE" ? <button className="button button-secondary" disabled={busy} onClick={() => void changeStatus(item, "DEACTIVATED")}>Deactivate</button> : item.status === "DEACTIVATED" ? <><button className="button button-secondary" disabled={busy} onClick={() => void changeStatus(item, "ACTIVE")}>Activate</button> <button className="button button-secondary" disabled={busy} onClick={() => void changeStatus(item, "ARCHIVED")}>Archive</button></> : <span className="trip-meta">Read-only history</span>}</span></div>;
     })}</section>}
     {list.pagination && <PaginationControl {...list.pagination} page={search.page} loading={list.loading} onPageChange={(page) => search.setPage(page, totalPages(list.pagination!.total, list.pagination!.pageSize))} onPageSizeChange={search.setPageSize} />}
-    {showForm && <Modal onDismiss={() => setShowForm(false)}><form className="dialog" role="dialog" aria-modal="true" onSubmit={create}><span className="eyebrow">New {resource.slice(0, -1)}</span><h2>Add to operations</h2>{resource === "vendors" ? <><Field name="name" label="Vendor name" maxLength={200} /><Field name="contactName" label="Contact name" maxLength={200} required={false} /><Field name="contactEmail" label="Contact email" type="email" maxLength={320} required={false} /><PhoneInput name="contactPhone" label="Contact phone" required={false} error={phoneFieldError} /></> : <><Field name="displayName" label="Vehicle display name" maxLength={200} /><Field name="registrationNumber" label="Registration number" maxLength={64} /></>}<div className="dialog-actions"><button type="button" className="button button-secondary" onClick={() => setShowForm(false)}>Cancel</button><button className="button" disabled={busy}>{busy ? "Saving…" : "Create record"}</button></div></form></Modal>}
+    {showForm && <Modal onDismiss={() => setShowForm(false)}><form className="dialog" role="dialog" aria-modal="true" onSubmit={create}><span className="eyebrow">New vendor</span><h2>Add to operations</h2><Field name="name" label="Vendor name" maxLength={200} /><Field name="contactName" label="Contact name" maxLength={200} required={false} /><Field name="contactEmail" label="Contact email" type="email" maxLength={320} required={false} /><PhoneInput name="contactPhone" label="Contact phone" required={false} error={phoneFieldError} /><div className="dialog-actions"><button type="button" className="button button-secondary" onClick={() => setShowForm(false)}>Cancel</button><button className="button" disabled={busy}>{busy ? "Saving…" : "Create record"}</button></div></form></Modal>}
   </>;
 }
 

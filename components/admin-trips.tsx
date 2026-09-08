@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import type { AdminDriver, Booking, DriverEngagement, EngagementStatus, QuestionnairePurpose, Trip, TripCreationSource, Vehicle } from "@/lib/contracts";
+import type { AdminDriver, Booking, DriverEngagement, EngagementStatus, QuestionnairePurpose, Trip, TripCreationSource, VehicleSummary } from "@/lib/contracts";
 import { ApiError, apiRequest, errorMessage, errorPresentation, getData, getPaginated, resolveFormFieldErrors, type ApiErrorPresentation, type NormalizedFieldError } from "@/lib/api";
 import { formatTripRange, tripSource, tripStatus } from "@/lib/status";
 import { assignmentErrorFields, changedTripFields, validateTripSchedule, type TripFieldName, type TripScheduleInput, type TripValidationErrors } from "@/lib/trip-scheduling";
@@ -54,7 +54,7 @@ export function changedTripValues(trip: Trip, values: TripFormValues) {
 export function AdminTrips() {
   const search = useListSearchParams();
   const [drivers, setDrivers] = useState<AdminDriver[]>([]);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [vehicles, setVehicles] = useState<VehicleSummary[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const sourceValues: TripCreationSource[] = ["ADMIN_ASSIGNED", "DRIVER_ENTERED"];
   const sourceParam = search.parameters.get("creationSource") as TripCreationSource | null;
@@ -77,7 +77,7 @@ export function AdminTrips() {
     try {
       const [driverList, vehicleList, bookingList] = await Promise.all([
         getPaginated<AdminDriver>("/api/v1/admin/drivers?status=ACTIVE&page=1&pageSize=100"),
-        getPaginated<Vehicle>("/api/v1/admin/vehicles?status=ACTIVE&page=1&pageSize=100"),
+        getPaginated<VehicleSummary>("/api/v1/admin/vehicles?status=ACTIVE&page=1&pageSize=100"),
         getPaginated<Booking>("/api/v1/admin/bookings?status=ACTIVE&page=1&pageSize=100"),
       ]);
       setDrivers(driverList.data); setVehicles(vehicleList.data); setBookings(bookingList.data);
@@ -179,7 +179,7 @@ export function AdminTrips() {
 }
 
 function TripForm({ mode, trip, bookings, drivers, vehicles, busy, error, fieldErrors, backendSummary, onCancel, onSubmit }: {
-  mode: "create" | "edit"; trip?: Trip; bookings:Booking[]; drivers: AdminDriver[]; vehicles: Vehicle[]; busy: boolean;
+  mode: "create" | "edit"; trip?: Trip; bookings:Booking[]; drivers: AdminDriver[]; vehicles: VehicleSummary[]; busy: boolean;
   error: ApiErrorPresentation | null; fieldErrors: TripValidationErrors; backendSummary:NormalizedFieldError[];
   onCancel: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
