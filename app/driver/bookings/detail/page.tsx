@@ -1,0 +1,1 @@
+import { Suspense } from "react"; import { DriverBookingRoute } from "@/components/driver-timeline"; export default function Page(){return <Suspense fallback={<p>Loading booking…</p>}><DriverBookingRoute/></Suspense>}

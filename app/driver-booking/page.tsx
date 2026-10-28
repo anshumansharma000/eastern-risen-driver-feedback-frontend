@@ -1,0 +1,1 @@
+import type { Metadata } from "next"; import { PublicDriverBooking } from "@/components/driver-timeline"; export const metadata:Metadata={title:"Driver trip updates",referrer:"no-referrer",robots:{index:false,follow:false}}; export default function Page(){return <PublicDriverBooking/>}

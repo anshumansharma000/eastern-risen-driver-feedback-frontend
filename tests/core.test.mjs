@@ -204,11 +204,13 @@ test("feedback-link endpoints preserve admin and assigned-driver engagement boun
 test("handoff uses the complete backend feedback link and formats expiry locally", () => {
   const data = feedbackLinkFromHandoff({
     id: "engagement-1",
+    allowMultipleSubmissions: false,
     feedbackLink: "https://feedback.example/feedback?token=opaque.value",
     feedbackAccessTokenExpiresAt: "2030-01-02T03:04:00.000Z",
   });
   assert.deepEqual(data, {
     engagementId: "engagement-1",
+    allowMultipleSubmissions: false,
     feedbackLink: "https://feedback.example/feedback?token=opaque.value",
     feedbackAccessTokenExpiresAt: "2030-01-02T03:04:00.000Z",
   });
@@ -577,7 +579,7 @@ test("share and passenger UI preserve exact links, bearer tokens, and non-persis
   const driver = readFileSync(new URL("../components/trip-card.tsx", import.meta.url), "utf8");
   const admin = readFileSync(new URL("../components/admin-trips.tsx", import.meta.url), "utf8");
   assert.match(share, /copyFeedbackLink\(details\.feedbackLink, navigator\.clipboard\)/);
-  assert.match(share, /shareFeedbackLink\(details\.feedbackLink, navigator\.share\.bind\(navigator\)\)/);
+  assert.match(share, /shareFeedbackLink\(details\.feedbackLink, navigator\.share\.bind\(navigator\), details\.allowMultipleSubmissions\)/);
   assert.match(share, /result === "cancelled"/);
   assert.match(driver, /ShareFeedbackLinkAction engagementId=\{engagement\.id\} audience="driver"/);
   assert.match(driver, /setHandoff\(response\.data\.feedbackAccessToken,response\.data\.feedbackAccessTokenExpiresAt\);router\.push\("\/feedback"\)/);
@@ -600,7 +602,7 @@ test("engagement migration removes trip feedback calls and preserves conflict an
   assert.match(sources,/context\.engagement\.trips/);
   assert.match(sources,/engagementId:string/);
   assert.match(sources,/ENGAGEMENT_FEEDBACK_ALREADY_SUBMITTED/);
-  assert.match(sources,/submissionId\.current\?\?=crypto\.randomUUID\(\)/);
+  assert.match(sources,/draft\.current\?\?=new PassengerDraft\(\)/);
   assert.match(sources,/id:envelope\.clientSubmissionId/);
   assert.match(sources,/replayed: boolean/);
   assert.match(sources,/window\.addEventListener\("api-stale-state",refresh\)/);

@@ -10,18 +10,20 @@ import {
   type ReactNode,
 } from "react";
 import { Brand } from "./brand";
-import { ApiError, apiRequest, errorPresentation, getData, type ApiErrorPresentation } from "@/lib/api";
+import { apiRequest, errorPresentation, getData, type ApiErrorPresentation } from "@/lib/api";
 import { ErrorAlert } from "./ui";
 import type { Principal } from "@/lib/contracts";
 
 const driverNav = [
   ["/driver", "Journeys"],
+  ["/driver/bookings", "Trip updates"],
   ["/driver/performance", "Performance"],
   ["/driver/pending-sync", "Sync status"],
   ["/driver/profile", "Profile"],
 ] as const;
 const driverPrimaryNav = [
   ["/driver", "Journeys", "journeys"],
+  ["/driver/bookings", "Updates", "updates"],
   ["/driver/performance", "Performance", "performance"],
   ["/driver/pending-sync", "Sync", "sync"],
 ] as const;
@@ -61,16 +63,16 @@ export function AppShell({
     try {
       const result = await getData<{ user: Principal }>("/api/v1/auth/me");
       if (result.user.role !== role.toUpperCase()) {
-        router.replace(result.user.role === "ADMIN" ? "/admin" : "/driver");
+        setSessionError({message:"Your account cannot open this workspace."});
         return;
       }
       setPrincipal(result.user);
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 403) setSessionError(errorPresentation(cause));
+      setSessionError(errorPresentation(cause));
     } finally {
       setCheckingSession(false);
     }
-  }, [role, router]);
+  }, [role]);
   useEffect(() => {
     queueMicrotask(() => void refreshIdentity());
     window.addEventListener("identity-refresh", refreshIdentity);
@@ -299,6 +301,7 @@ function navigationActive(
   role: "driver" | "admin",
 ) {
   const current = normalizePath(pathname);
+  if (href === "/admin") return current === "/admin";
   if (role === "driver" && href === "/driver")
     return (
       current === "/driver" ||

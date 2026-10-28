@@ -4,6 +4,7 @@ import { useState } from "react";
 import { buildE164, parsePhoneValue, PHONE_COUNTRIES, PHONE_ERROR, PHONE_HELP } from "@/lib/phone";
 
 type PhoneInputProps = {
+  international?: boolean;
   name: string;
   label: string;
   required?: boolean;
@@ -13,7 +14,7 @@ type PhoneInputProps = {
   onValueChange?: (value: string) => void;
 };
 
-export function PhoneInput({ name, label, required = true, defaultValue, value, error, onValueChange }: PhoneInputProps) {
+export function PhoneInput({ name, label, required = true, defaultValue, value, error, onValueChange, international=false }: PhoneInputProps) {
   const initial = parsePhoneValue(value ?? defaultValue);
   const [countryIso, setCountryIso] = useState(initial.country.iso);
   const [nationalNumber, setNationalNumber] = useState(initial.nationalNumber);
@@ -35,6 +36,7 @@ export function PhoneInput({ name, label, required = true, defaultValue, value, 
     onValueChange?.(canonical);
   }
 
+  if(international)return <div className="field phone-field"><label htmlFor={name}>{label}</label><input id={name} name={name} className="input" type="tel" autoComplete="tel" required={required} placeholder="+91 98765 43210" value={value??""} onChange={event=>onValueChange?.(event.target.value)} aria-invalid={!!error} aria-describedby={`${helpId}${error?` ${errorId}`:""}`}/><small id={helpId}>Include + or 00 and your country code.</small>{error&&<small id={errorId} className="field-error" role="alert">{error}</small>}</div>;
   return <div className="field phone-field">
     <label htmlFor={`${name}-national`}>{label}{!required && " (optional)"}</label>
     <div className="phone-input-row">

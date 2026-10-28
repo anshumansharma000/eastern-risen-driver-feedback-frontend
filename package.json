@@ -14,7 +14,9 @@
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "test:timeline-browser": "node tests/timeline.browser.mjs",
+    "test:group-feedback-browser": "node tests/group-feedback.browser.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

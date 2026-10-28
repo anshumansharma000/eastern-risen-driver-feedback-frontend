@@ -1,6 +1,6 @@
-import type { SubmitFeedbackRequest, SubmissionReceipt } from "./contracts";
-import { ApiError, apiRequest, isRetryable } from "./api";
-import { backoffDelay } from "./retry-policy";
+import type { SubmitFeedbackRequest, SubmissionReceipt } from "./contracts.ts";
+import { ApiError, apiRequest, isRetryable } from "./api.ts";
+import { backoffDelay } from "./retry-policy.ts";
 
 export type QueueState = "WAITING" | "SYNCING" | "NEEDS_ATTENTION";
 export interface QueuedFeedback { id:string; token:string; envelope:SubmitFeedbackRequest; createdAt:string; attempts:number; state:QueueState; nextAttemptAt:string; lastErrorCode?:string }
@@ -13,4 +13,14 @@ export async function listQueued(){return transaction<QueuedFeedback[]>("readonl
 async function put(item:QueuedFeedback){return transaction<void>("readwrite",(store,resolve,reject)=>{const req=store.put(item);req.onsuccess=()=>resolve();req.onerror=()=>reject(req.error)})}
 async function remove(id:string){return transaction<void>("readwrite",(store,resolve,reject)=>{const req=store.delete(id);req.onsuccess=()=>resolve();req.onerror=()=>reject(req.error)})}
 export async function queueSummary():Promise<QueueSummary>{const items=await listQueued();return{count:items.length,oldestAt:items.sort((a,b)=>a.createdAt.localeCompare(b.createdAt))[0]?.createdAt??null,needsAttention:items.filter(i=>i.state==="NEEDS_ATTENTION").length}}
-export async function syncQueue(){if(!navigator.onLine)return queueSummary();const items=await listQueued();for(const item of items){if(new Date(item.nextAttemptAt)>new Date())continue;const syncing={...item,state:"SYNCING" as const};await put(syncing);try{await apiRequest<{data:SubmissionReceipt}>("/api/v1/passenger/feedback/submissions",{method:"POST",passengerToken:item.token,body:JSON.stringify(item.envelope),timeoutMs:15000});await remove(item.id)}catch(error){const attempts=item.attempts+1;const retry=isRetryable(error)&&attempts<8;await put({...item,attempts,state:retry?"WAITING":"NEEDS_ATTENTION",nextAttemptAt:new Date(Date.now()+backoffDelay(attempts)).toISOString(),lastErrorCode:error instanceof ApiError?error.code:"UNKNOWN"})}}return queueSummary()}
+export async function syncQueuedFeedback(item:QueuedFeedback):Promise<QueuedFeedback|null> {
+  try {
+    await apiRequest<{data:SubmissionReceipt}>("/api/v1/passenger/feedback/submissions",{method:"POST",passengerToken:item.token,body:JSON.stringify(item.envelope),timeoutMs:15000});
+    return null;
+  } catch(error) {
+    const attempts=item.attempts+1;
+    const retry=isRetryable(error)&&attempts<8;
+    return {...item,attempts,state:retry?"WAITING":"NEEDS_ATTENTION",nextAttemptAt:new Date(Date.now()+backoffDelay(attempts)).toISOString(),lastErrorCode:error instanceof ApiError?error.code:"UNKNOWN"};
+  }
+}
+export async function syncQueue(retryAttention=false){if(!navigator.onLine)return queueSummary();const items=await listQueued();for(const item of items){if((item.state==="NEEDS_ATTENTION"&&!retryAttention)||new Date(item.nextAttemptAt)>new Date())continue;await put({...item,state:"SYNCING"});const pending=await syncQueuedFeedback(item);if(pending)await put(pending);else await remove(item.id)}return queueSummary()}

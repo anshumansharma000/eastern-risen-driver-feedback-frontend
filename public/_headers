@@ -1,0 +1,6 @@
+/driver-booking
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/driver-booking/*
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer

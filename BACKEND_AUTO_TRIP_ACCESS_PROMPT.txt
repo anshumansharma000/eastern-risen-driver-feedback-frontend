@@ -1,0 +1,9 @@
+Automatically grant access to newly created trips for an already-linked driver.
+
+When a new trip is created and assigned to driver A within booking X, automatically add its current assignment grant to A's existing valid booking link. Apply this consistently across trip creation paths, atomically with creation/assignment. The admin must not need to issue/refresh access again. Preserve the link token/URL and expiry.
+
+The existing link's context must return the new trip, and its timeline reads, milestone submissions and photo uploads must authorise that assignment. Cookie-authenticated driver booking lists/context must likewise reflect the new assignment. Keep existing API contracts so the frontend sees it on its normal refresh without calling the link-issuance endpoint.
+
+Do not create a link where none exists, extend expiry, revive expired/revoked links, or grant access to another driver's trips. First-time issuance stays explicit. Preserve current reassignment, revocation, cancellation/archive, reopening and assignment-version/offline-replay protections; this change applies to newly created trips assigned to the same driver in the same booking.
+
+Test: issue A a link, create another trip for A in X, then verify the same URL sees and can update/upload photos for it without a link-refresh POST. Verify LOGIN access too. Repeat creation attempts safely, and verify driver B, other bookings, expired/revoked links and stale assignment versions remain denied.

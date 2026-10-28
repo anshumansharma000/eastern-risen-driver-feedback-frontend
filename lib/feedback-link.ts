@@ -13,11 +13,13 @@ export function passengerTokenFromSearch(search: string) {
 
 export function feedbackLinkFromHandoff(data: {
   id: string;
+  allowMultipleSubmissions: boolean;
   feedbackLink: string;
   feedbackAccessTokenExpiresAt: string;
 }): FeedbackLink {
   return {
     engagementId: data.id,
+    allowMultipleSubmissions:data.allowMultipleSubmissions,
     feedbackLink: data.feedbackLink,
     feedbackAccessTokenExpiresAt: data.feedbackAccessTokenExpiresAt,
   };
@@ -38,9 +40,9 @@ export async function copyFeedbackLink(feedbackLink: string, clipboard: Pick<Cli
   await clipboard.writeText(feedbackLink);
 }
 
-export async function shareFeedbackLink(feedbackLink: string, share: (data: ShareData) => Promise<void>) {
+export async function shareFeedbackLink(feedbackLink: string, share: (data: ShareData) => Promise<void>, allowMultipleSubmissions=false) {
   try {
-    await share({ title: "Passenger feedback", text: "Share feedback about your trip", url: feedbackLink });
+    await share({ title: "Passenger feedback", text: allowMultipleSubmissions ? "Each traveller can share feedback once for this part of the journey using their own phone number, including country code." : "Share feedback about your trip", url: feedbackLink });
     return "shared" as const;
   } catch (cause) {
     if (typeof cause === "object" && cause !== null && "name" in cause && cause.name === "AbortError") return "cancelled" as const;

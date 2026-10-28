@@ -9,7 +9,7 @@ export function Modal({children,onDismiss}:{children:ReactNode;onDismiss:()=>voi
 
   useEffect(()=>{
     const previouslyFocused=document.activeElement instanceof HTMLElement?document.activeElement:null;
-    const focusableSelector='button:not(:disabled), [href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+    const focusableSelector='button:not(:disabled), [href], summary, input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
     function handleKeyDown(event:KeyboardEvent){
       const openBackdrops=Array.from(document.querySelectorAll(".dialog-backdrop"));
@@ -20,7 +20,7 @@ export function Modal({children,onDismiss}:{children:ReactNode;onDismiss:()=>voi
         return;
       }
       if(event.key!=="Tab")return;
-      const focusable=Array.from(backdropRef.current?.querySelectorAll<HTMLElement>(focusableSelector)??[]);
+      const focusable=Array.from(backdropRef.current?.querySelectorAll<HTMLElement>(focusableSelector)??[]).filter(element=>element.getClientRects().length>0);
       if(!focusable.length){
         event.preventDefault();
         return;

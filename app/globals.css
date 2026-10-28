@@ -268,3 +268,100 @@ a { color: inherit; text-decoration: none; }
   .print-answers .answer-choice-list li { padding:1mm 2mm; background:#fff; font-size:8.5pt; }
   .print-feedback-report footer { display:flex; justify-content:space-between; gap:10mm; margin-top:8mm; padding-top:3mm; border-top:1px solid #777; color:#555; font-size:7.5pt; }
 }
+
+/* Feedback timeline: mobile first, status always conveyed in text. */
+.timeline-section { margin-top: 2rem; scroll-margin-top: 2rem; }
+.timeline-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0; }
+.timeline-actions .button { min-height: 44px; }
+.timeline-list { display: grid; gap: 1rem; padding: 0; list-style: none; margin: 1rem 0; }
+.timeline-list h3 { margin-bottom: .5rem; }
+.timeline-list details { margin: .75rem 0; }
+.timeline-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.timeline-photo { max-width: 100%; max-height: 65vh; object-fit: contain; }
+.timeline-driver .card { margin-bottom: 1rem; }
+.timeline-driver select, .timeline-section select { width: 100%; min-height: 44px; }
+.timeline-driver textarea, .timeline-section textarea { width: 100%; min-height: 100px; }
+.timeline-driver { max-width: 960px; }
+@media (max-width: 600px) { .timeline-actions .button { flex: 1 1 45%; } .timeline-section .section-heading { flex-wrap: wrap; gap: 1rem; } }
+
+/* Booking navigation and operational summaries use the existing warm surfaces. */
+.booking-tabs { display:flex; gap:.25rem; overflow-x:auto; border-bottom:1px solid var(--border); margin:1.5rem 0; }
+.booking-tabs button { flex:0 0 auto; min-height:48px; padding:.8rem 1rem; border:0; border-bottom:3px solid transparent; background:transparent; color:var(--muted-foreground); font:inherit; font-weight:750; cursor:pointer; }
+.booking-tabs button[aria-selected="true"] { border-bottom-color:var(--primary); color:var(--primary); }
+.booking-tabs button:focus-visible { outline:3px solid var(--focus); outline-offset:-3px; border-radius:6px; }
+.booking-sections [role="tabpanel"] { scroll-margin-top:1.5rem; }
+.booking-sections [role="tabpanel"][hidden] { display:none; }
+.booking-sections [role="tabpanel"]:focus-visible { outline:2px solid var(--focus); outline-offset:5px; }
+.booking-updates > .timeline-section { margin-top:0; }
+.timeline-meta { color:var(--muted-foreground); font-size:.88rem; margin:.5rem 0 1rem; }
+.progress-snapshot { margin:0 0 2.5rem; }
+.progress-rows { overflow:hidden; }
+.progress-rows:empty { display:none; }
+.progress-row { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(150px,.8fr) minmax(0,1.2fr) auto; align-items:center; gap:1rem; padding:1rem 1.25rem; border-bottom:1px solid var(--border); }
+.progress-row:last-child { border-bottom:0; }
+.progress-row strong,.progress-row small,.progress-row-update span { display:block; }
+.progress-row strong { margin:.25rem 0; }
+.progress-row small { color:var(--muted-foreground); font-size:.8rem; }
+.progress-row-state { display:grid; justify-items:start; gap:.4rem; }
+.progress-footer { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin:1rem 0; }
+.progress-footer .timeline-meta { margin:0; }
+.progress-trip header { display:flex; align-items:start; justify-content:space-between; gap:1rem; }
+.progress-trip h3,.driver-link-card h3 { font-weight:800; font-size:1.05rem; margin:0 0 .3rem; }
+.progress-trip header p { margin:0; color:var(--muted-foreground); }
+.progress-times { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; padding:1rem 0; border-top:1px solid var(--border); }
+.progress-times dt { font-size:.75rem; color:var(--muted-foreground); font-weight:750; }
+.progress-times dd { margin:.3rem 0 0; font-size:.88rem; }
+.progress-latest { display:grid; gap:.25rem; font-size:.88rem; }
+.progress-latest small { color:var(--muted-foreground); }
+.timeline-success { background:#e4f2e9; color:var(--success); border-color:#c3dfcc; }
+.booking-updates-grid { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr); gap:1.5rem; align-items:start; }
+.booking-updates-grid .timeline-section { margin-top:0; }
+.driver-access-section { padding-top:.25rem; }
+.driver-access-section .section-title { font-size:1.6rem; }
+.driver-link-card { margin-bottom:1rem; }
+.driver-link-card .timeline-actions .button { flex:1 1 100%; }
+.access-options { border-top:1px solid var(--border); padding:.8rem 0 0; margin-top:.8rem; }
+.access-options summary { min-height:32px; cursor:pointer; font-weight:750; font-size:.85rem; }
+.access-options .field { margin-top:.75rem; }
+.analytics-heading { margin-top:2rem; }
+.driver-nav-icon-updates i { position:absolute; left:3px; right:3px; height:3px; border-radius:2px; background:currentColor; }
+.driver-nav-icon-updates i:nth-child(1) { top:3px; }
+.driver-nav-icon-updates i:nth-child(2) { top:10px; }
+.driver-nav-icon-updates i:nth-child(3) { top:17px; }
+@media (max-width: 1000px) { .booking-updates-grid { grid-template-columns:minmax(0,1fr); } .progress-row { grid-template-columns:minmax(0,1fr) auto; } .progress-row-update { grid-column:1; } .progress-row-open { grid-column:2; } }
+@media (max-width: 900px) { .driver-bottom-nav { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media (max-width: 600px) { .booking-tabs button { padding:.75rem .6rem; font-size:.85rem; } .progress-trip header { flex-wrap:wrap; } .progress-row { padding:1rem; } .progress-times { grid-template-columns:minmax(0,1fr); gap:.7rem; } .progress-row-state .status { white-space:normal; text-align:center; max-width:130px; } }
+.booking-more-actions { position:relative; }
+.booking-more-actions summary { list-style:none; gap:.5rem; }
+.booking-more-actions summary::-webkit-details-marker { display:none; }
+.booking-more-actions summary::after { content:"⌄"; }
+.booking-action-menu { position:absolute; z-index:10; top:calc(100% + .5rem); left:0; min-width:230px; padding:.5rem; display:grid; gap:.35rem; background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); }
+.booking-action-menu .button { justify-content:flex-start; width:100%; }
+@media (max-width:600px) { .booking-more-actions { flex:1; } .booking-more-actions summary { width:100%; } .booking-action-menu { min-width:100%; } }
+.driver-trip-heading { display:flex; justify-content:space-between; align-items:start; gap:1rem; flex-wrap:wrap; }
+.driver-trip-heading h2 { margin:0; }
+.driver-primary-action { width:100%; min-height:52px; margin:.5rem 0; }
+.driver-milestones { margin-top:1rem; }
+.driver-milestones .field-label { color:var(--muted-foreground); font-size:.8rem; font-weight:750; margin-bottom:.5rem; }
+.driver-milestones .timeline-actions { margin:.5rem 0 1rem; }
+.driver-disclosure > summary { cursor:pointer; min-height:44px; padding:.65rem 0; font-weight:750; }
+.driver-disclosure > summary:focus-visible { outline:2px solid var(--primary); outline-offset:4px; border-radius:4px; }
+.driver-current-trip > .driver-disclosure, .driver-page-options, .composer-details { border-top:1px solid var(--border); }
+.driver-saved-update { border-top:1px solid var(--border); padding:1rem 0; }
+.driver-saved-update .timeline-note:empty { display:none; }
+.driver-history .timeline-section { margin-top:1rem; }
+.driver-page-options { margin-top:1rem; }
+.composer-details { margin:1rem 0; }
+.composer-details .field { margin-top:.75rem; }
+@media (max-width:600px) { .driver-trip-heading .status { white-space:normal; } .driver-milestones .button { flex:1 1 100%; } }
+.driver-next-label { margin:.75rem 0 0; color:var(--primary); font-size:.8rem; font-weight:750; }
+.driver-extra-updates { border-top:1px solid var(--border); padding-top:1rem; margin-top:1rem; }
+.driver-extra-updates > .field-label { font-size:.85rem; color:var(--muted-foreground); font-weight:750; margin:0; }
+.driver-extra-updates .timeline-actions { margin-bottom:0; }
+.composer-details { border-top:0; }
+
+.feedback-collection-controls { width:100%; }
+.feedback-collection-mode { margin-bottom:.8rem; }
+.feedback-collection-mode .field-help { margin:.35rem 0 0; }
+.feedback-sharing-actions { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:flex-end; gap:.65rem; margin:0; padding:0; border:0; min-width:0; }
+@media (max-width:640px) { .feedback-sharing-actions > * { width:100%; } }

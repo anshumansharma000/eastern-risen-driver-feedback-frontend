@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { FeedbackLink } from "@/lib/contracts";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { EngagementStatus, FeedbackLink } from "@/lib/contracts";
 import { ApiError, apiRequest, errorMessage, errorPresentation, type ApiErrorPresentation } from "@/lib/api";
 import { copyFeedbackLink, feedbackLinkPath, formatFeedbackLinkExpiry, isFeedbackLinkExpired, shareFeedbackLink, type FeedbackLinkAudience } from "@/lib/feedback-link";
 import { MISSING_PASSENGER_PHONE_MESSAGE, openFeedbackOnWhatsApp } from "@/lib/whatsapp-feedback";
 import { Modal } from "./modal";
 import { ErrorAlert } from "./ui";
-import { DATA_INVALIDATED_EVENT } from "@/lib/data-invalidation";
+import { DATA_INVALIDATED_EVENT, invalidateEngagementFeedbackData } from "@/lib/data-invalidation";
+import { invalidateCaches } from "@/lib/feedback-contract";
+import { closeGroupFeedback, generateFeedbackLink, readFeedbackMode } from "@/lib/group-feedback";
+import { AlertDialog } from "./alert-dialog";
 
 type Notice = ApiErrorPresentation | null;
 const subscribeToShareSupport = () => () => undefined;
@@ -20,17 +23,93 @@ function notice(cause: unknown, audience: FeedbackLinkAudience): Notice {
   return { ...errorPresentation(cause), message };
 }
 
-export function ShareFeedbackLinkAction({ engagementId, audience }: { engagementId: string; audience: FeedbackLinkAudience }) {
+/** One collection mode governs every sharing method for this engagement. */
+export function FeedbackCollectionControls({ engagementId, audience, status, children }: {
+  engagementId: string;
+  audience: FeedbackLinkAudience;
+  status: EngagementStatus;
+  children: ReactNode;
+}) {
+  const [details, setDetails] = useState<FeedbackLink | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Notice>(null);
+  const [modeLocked, setModeLocked] = useState(false);
+  const [loadVersion, setLoadVersion] = useState(0);
+  const mutationInFlight = useRef(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function readMode() {
+      setLoading(true);
+      try {
+        const response = await apiRequest<{ data: FeedbackLink }>(feedbackLinkPath(audience, engagementId), { signal: controller.signal });
+        if (!controller.signal.aborted) { setDetails(readFeedbackMode(response.data)); setError(null); }
+      } catch (cause) {
+        if (!controller.signal.aborted) setError(notice(cause, audience));
+      } finally { if (!controller.signal.aborted) setLoading(false); }
+    }
+    void readMode();
+    window.addEventListener(DATA_INVALIDATED_EVENT, readMode);
+    return () => { controller.abort(); window.removeEventListener(DATA_INVALIDATED_EVENT, readMode); };
+  }, [audience, engagementId, loadVersion]);
+
+  async function changeMode(mode: boolean) {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true; setLoading(true); setError(null);
+    try { setDetails(await generateFeedbackLink(audience, engagementId, mode)); }
+    catch (cause) {
+      setError(notice(cause, audience));
+      if (cause instanceof ApiError && cause.code === "FEEDBACK_LINK_MODE_LOCKED") {
+        setModeLocked(true);
+        try {
+          const response = await apiRequest<{ data: FeedbackLink }>(feedbackLinkPath(audience, engagementId));
+          setDetails(readFeedbackMode(response.data));
+        } catch { /* Preserve the last authoritative mode until it can be refreshed. */ }
+      }
+    } finally { mutationInFlight.current = false; setLoading(false); }
+  }
+
+  return <div className="feedback-collection-controls">
+    <div className="feedback-collection-mode" aria-busy={loading}>
+      <label className="check-row"><input type="checkbox" checked={details?.allowMultipleSubmissions ?? false} disabled={loading || !details || status !== "READY" || modeLocked} onChange={event => void changeMode(event.target.checked)} /><span>Allow feedback from multiple travellers</span></label>
+      <p className="field-help">{loading ? "Loading collection mode…" : status !== "READY" || modeLocked ? "The collection mode is fixed after passenger feedback starts." : "Applies to both WhatsApp and feedback link sharing. Changes save automatically."}</p>
+      {error && <ErrorAlert {...error} />}
+      {!loading && !details && <button className="button button-secondary" onClick={() => setLoadVersion(value => value + 1)}>Retry collection mode</button>}
+    </div>
+    <fieldset className="feedback-sharing-actions" disabled={loading || !details} aria-label="Share passenger feedback">{children}</fieldset>
+  </div>;
+}
+
+export function ShareFeedbackLinkAction({ engagementId, audience }: { engagementId: string; audience: FeedbackLinkAudience; status?: EngagementStatus }) {
   const [open, setOpen] = useState(false);
   const [details, setDetails] = useState<FeedbackLink | null>(null);
   const [error, setError] = useState<Notice>(null);
   const [loading, setLoading] = useState(false);
 
+  const [closing, setClosing] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const mutationInFlight=useRef(false);
+  async function renew(mode:boolean) {
+    if(mutationInFlight.current)return;
+    mutationInFlight.current=true;setLoading(true);setError(null);
+    try { setDetails(await generateFeedbackLink(audience,engagementId,mode)); }
+    catch(cause) {
+      setError(notice(cause,audience));
+      if(cause instanceof ApiError && cause.code==="FEEDBACK_LINK_MODE_LOCKED") {
+        try { const response=await apiRequest<{data:FeedbackLink}>(feedbackLinkPath(audience,engagementId));setDetails(readFeedbackMode(response.data)); } catch { /* Keep the current link visible for recovery. */ }
+      }
+    } finally {mutationInFlight.current=false;setLoading(false);}
+  }
+  async function closeCollection() {
+    setClosing(true);setError(null);
+    try { await closeGroupFeedback(engagementId);setConfirmClose(false);setOpen(false);invalidateEngagementFeedbackData();invalidateCaches(["feedback-lists","feedback-detail","analytics","driver-performance","passenger-context"]); }
+    catch(cause){setConfirmClose(false);setError(notice(cause,audience));}
+    finally{setClosing(false);}
+  }
   async function load() {
     setLoading(true); setError(null);
     try {
-      const response = await apiRequest<{ data: FeedbackLink }>(feedbackLinkPath(audience, engagementId));
-      setDetails(response.data);
+      setDetails(await generateFeedbackLink(audience, engagementId));
     } catch (cause) {
       setDetails(null); setError(notice(cause, audience));
     } finally { setLoading(false); }
@@ -41,7 +120,8 @@ export function ShareFeedbackLinkAction({ engagementId, audience }: { engagement
 
   return <>
     <button className="button" onClick={show}>Share feedback link</button>
-    {open && <FeedbackLinkDialog details={details} loading={loading} error={error} onRetry={() => void load()} onDismiss={() => setOpen(false)} />}
+    {open && <FeedbackLinkDialog details={details} loading={loading} error={error} onRetry={() => void load()} onDismiss={() => !loading && setOpen(false)} onRenew={()=>details&&void renew(details.allowMultipleSubmissions)} onCloseCollection={audience==="admin"&&details?.allowMultipleSubmissions?()=>setConfirmClose(true):undefined} />}
+    {confirmClose && <AlertDialog title="Close group feedback?" confirmLabel="Close group feedback" busy={closing} destructive onCancel={()=>setConfirmClose(false)} onConfirm={()=>void closeCollection()}><p>This ends collection and invalidates the shared link. Existing responses are retained. The collection cannot be reopened.</p></AlertDialog>}
   </>;
 }
 
@@ -86,7 +166,9 @@ export function ShareFeedbackOnWhatsAppAction({ engagementId, audience = "admin"
   </div>;
 }
 
-export function FeedbackLinkDialog({ details, loading = false, error = null, onRetry, onDismiss }: {
+export function FeedbackLinkDialog({ details, loading = false, error = null, onRetry, onDismiss, onRenew, onCloseCollection }: {
+  onRenew?:()=>void;
+  onCloseCollection?:()=>void;
   details: FeedbackLink | null;
   loading?: boolean;
   error?: Notice;
@@ -111,7 +193,7 @@ export function FeedbackLinkDialog({ details, loading = false, error = null, onR
     if (!details || !canShare) return;
     setShareState("idle");
     try {
-      const result = await shareFeedbackLink(details.feedbackLink, navigator.share.bind(navigator));
+      const result = await shareFeedbackLink(details.feedbackLink, navigator.share.bind(navigator), details.allowMultipleSubmissions);
       if (result === "cancelled") setShareState("cancelled");
     } catch {
       setShareState("failed");
@@ -122,9 +204,12 @@ export function FeedbackLinkDialog({ details, loading = false, error = null, onR
     <p className="eyebrow">Passenger feedback</p>
     <h2 id="feedback-link-title">Share feedback link</h2>
     {loading && <div className="share-link-loading" aria-live="polite"><div className="skeleton" /><p>Retrieving the secure link…</p></div>}
-    {!loading && error && <><ErrorAlert {...error} />{onRetry && <button className="button button-secondary" onClick={onRetry}>Try again</button>}</>}
-    {!loading && details && <>
-      {expired && <div className="alert" role="alert"><strong>This link has expired.</strong><div>Ask the driver to start a new feedback handoff if one is available.</div></div>}
+    {error && <><ErrorAlert {...error} />{onRetry && <button className="button button-secondary" onClick={onRetry}>Try again</button>}</>}
+    {details && <>
+      {details.allowMultipleSubmissions && <p>Share this link once with the group. Each traveller should respond using their own phone number, including country code.</p>}
+      {onCloseCollection && <button className="button button-danger" disabled={loading} onClick={onCloseCollection}>Close group feedback</button>}
+      {expired && <div className="alert" role="alert"><strong>This link has expired.</strong><div>Renew the link explicitly to continue collecting feedback.</div></div>}
+      {expired&&onRenew&&<button className="button" disabled={loading} onClick={onRenew}>Renew expired link</button>}
       <label className="field share-link-field"><span>Passenger link</span><input className="input" value={details.feedbackLink} readOnly aria-label="Passenger feedback link" /></label>
       <p className="share-link-expiry">Expires {formatFeedbackLinkExpiry(details.feedbackAccessTokenExpiresAt)}</p>
       {copyState === "copied" && <p className="share-link-status" role="status">Link copied.</p>}
@@ -133,8 +218,8 @@ export function FeedbackLinkDialog({ details, loading = false, error = null, onR
       {shareState === "failed" && <p className="share-link-status share-link-error" role="alert">Couldn’t open the share menu. Copy the link instead.</p>}
       <div className="dialog-actions">
         <button className="button button-secondary" onClick={onDismiss}>Close</button>
-        {canShare && <button className="button button-secondary" disabled={expired} onClick={() => void share()}>Share…</button>}
-        <button className="button" disabled={expired} onClick={() => void copy()}>{copyState === "copied" ? "Copied" : "Copy link"}</button>
+        {canShare && <button className="button button-secondary" disabled={expired||loading} onClick={() => void share()}>Share…</button>}
+        <button className="button" disabled={expired||loading} onClick={() => void copy()}>{copyState === "copied" ? "Copied" : "Copy link"}</button>
       </div>
     </>}
   </section></Modal>;

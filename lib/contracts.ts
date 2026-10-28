@@ -121,8 +121,9 @@ export interface CreateBookingRequest {
 }
 export type UpdateBookingRequest = Partial<Pick<CreateBookingRequest,"bookingReference"|"tourName"|"fileNumber"|"passengerName"|"passengerPhone"|"startsAt"|"endsAt"|"notes">>;
 export interface DriverLeave { id:string; driverId:string; startsAt:string; endsAt:string; reason:string|null; createdAt:string }
-export interface HandoffEngagement extends DriverEngagement { feedbackAccessToken:string; feedbackAccessTokenExpiresAt:string; feedbackLink:string }
+export interface HandoffEngagement extends DriverEngagement { allowMultipleSubmissions:boolean; feedbackAccessToken:string; feedbackAccessTokenExpiresAt:string; feedbackLink:string }
 export interface FeedbackLink {
+  allowMultipleSubmissions: boolean;
   engagementId: string;
   feedbackLink: string;
   feedbackAccessTokenExpiresAt: string;
@@ -140,6 +141,7 @@ export interface QuestionnaireSection { purpose:QuestionnairePurpose; title:stri
 export interface QuestionnaireSnapshot { schemaVersion:2; sections:QuestionnaireSection[] }
 export interface ConsentVersion { id: string; version: number; content: string; effectiveAt: string; retiredAt: string | null }
 export interface PassengerContext {
+  allowMultipleSubmissions: boolean;
   engagement:{id:string;sequenceNumber:number;bookingReference:string;driver:{displayName:string};trips:Array<{id:string;pickupLocation:string;destination:string;scheduledAt:string;scheduledEndAt:string;vehicle:Omit<VehicleSummary,"id">}>};
   questionnaire: QuestionnaireSnapshot; consent: ConsentVersion;
   completion: { agencyName: string; timezone: string; thankYouMessage: string };
