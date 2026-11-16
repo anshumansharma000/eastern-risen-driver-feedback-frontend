@@ -20,9 +20,9 @@ test('generation sends explicit chosen modes, preserves unknown mode with requir
  }finally{globalThis.fetch=original}
  assert.throws(()=>readFeedbackMode({}),error=>error.code==='MALFORMED_API_RESPONSE');
 });
-test('international formatting normalizes consistently without inferring a country',()=>{
+test('international formatting and local India defaults normalize consistently',()=>{
  for(const phone of ['+91 98765-43210','0091 (98765) 43210','+91.98765.43210'])assert.equal(normalizeRespondentPhone(phone),'+919876543210');
- assert.ok(phoneError(normalizeRespondentPhone('9876543210')));
+ assert.equal(normalizeRespondentPhone('9876543210'),'+919876543210');assert.equal(normalizeRespondentPhone('919876543210'),'+919876543210');
  assert.ok(phoneError(normalizeRespondentPhone('+91x9876543210')));
 });
 test('each traveller owns a distinct ID, answers and photo; retries freeze the exact envelope',()=>{

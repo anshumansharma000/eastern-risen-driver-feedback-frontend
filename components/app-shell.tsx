@@ -15,15 +15,15 @@ import { ErrorAlert } from "./ui";
 import type { Principal } from "@/lib/contracts";
 
 const driverNav = [
-  ["/driver", "Journeys"],
+  ["/driver", "Passenger feedback"],
   ["/driver/bookings", "Trip updates"],
   ["/driver/performance", "Performance"],
   ["/driver/pending-sync", "Sync status"],
   ["/driver/profile", "Profile"],
 ] as const;
 const driverPrimaryNav = [
-  ["/driver", "Journeys", "journeys"],
-  ["/driver/bookings", "Updates", "updates"],
+  ["/driver", "Feedback", "journeys"],
+  ["/driver/bookings", "Trip updates", "updates"],
   ["/driver/performance", "Performance", "performance"],
   ["/driver/pending-sync", "Sync", "sync"],
 ] as const;
@@ -127,7 +127,7 @@ export function AppShell({
         <p>Checking your secure session…</p>
       </main>
     );
-  if(sessionError)return <main className="page"><div className="page-header"><div><p className="eyebrow">Access control</p><h1>Access forbidden</h1><p>Your signed-in account cannot open this workspace.</p></div></div><ErrorAlert {...sessionError}/><Link className="button button-secondary" href={`/${role}/login`}>Return to sign in</Link></main>;
+  if(sessionError)return <main className="page"><div className="page-header"><div><p className="eyebrow">Workspace access</p><h1>{sessionError.kind === "transport" || sessionError.kind === "server" ? "Unable to connect" : "Workspace unavailable"}</h1><p>{sessionError.kind === "transport" || sessionError.kind === "server" ? "Check your connection and try again." : "Check your account access or return to sign in."}</p></div></div><ErrorAlert {...sessionError}/><div className="trip-actions"><button className="button" onClick={() => { setSessionError(null); setCheckingSession(true); void refreshIdentity(); }}>Try again</button><Link className="button button-secondary" href={`/${role}/login`}>Return to sign in</Link></div></main>;
   const currentPath = normalizePath(pathname);
   const driverContextScreen =
     role === "driver" &&
@@ -159,10 +159,10 @@ export function AppShell({
               <Link
                 className="mobile-back"
                 href="/driver"
-                aria-label="Back to journeys"
+                aria-label="Back to passenger feedback"
               >
                 <span aria-hidden="true">←</span>
-                <strong>Journeys</strong>
+                <strong>Feedback</strong>
               </Link>
             ) : (
               <Brand compact href={`/${role}`} />

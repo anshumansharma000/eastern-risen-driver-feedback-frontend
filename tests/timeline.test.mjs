@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ApiError, apiRequest } from '../lib/api.ts';
 import { adminTimeline, consumeDriverToken, driverTimelineAccess, putTimelinePhoto } from '../lib/timeline-api.ts';
-import { accessScope, actionsFor, assignmentProblem, canonicalEvents, correctedEvent, nextMilestone, milestoneOrder, progressLabels, validateEntry, validateExpiry, validLocation } from '../lib/timeline-rules.ts';
+import { accessScope, actionsFor, assignmentProblem, canonicalEvents, correctedEvent, progressLabels, validateEntry, validateExpiry, validLocation } from '../lib/timeline-rules.ts';
 import { exportEntry, freezeEntry, newQueueItem, processTimelineQueue, withTimelineLock } from '../lib/timeline-queue.ts';
 const now=()=>new Date().toISOString();
 function context(method='LOGIN'){return {booking:{id:'booking',bookingReference:'TEST-1',passengerName:'Fixture passenger',startsAt:new Date(Date.now()-3600000).toISOString(),endsAt:new Date(Date.now()+3600000).toISOString(),status:'ACTIVE'},driverId:'driver',accessMethod:method,expiresAt:null,reportingClosesAt:new Date(Date.now()+86400000).toISOString(),trips:[{id:'trip',assignmentVersion:7,pickupLocation:'Station',destination:'Hotel',scheduledAt:now(),scheduledEndAt:now(),vehicle:{registrationNumber:'TEST',displayName:'Car'},operationalStatus:'SCHEDULED',startedAt:null,completedAt:null}]}}
@@ -29,7 +29,7 @@ test('link denial leaves unrelated logged-in session alone and accepts error con
  try{await fixtureFetch(async()=>{await assert.rejects(()=>driverTimelineAccess('LINK','opaque').context(),e=>e.code==='DRIVER_LINK_INVALID'&&e.requestId==='support-1')},async()=>new Response(JSON.stringify({error:{code:'DRIVER_LINK_INVALID',message:'Access unavailable',requestId:'support-1'}}),{status:401,headers:{'content-type':'application/json'}}));assert.equal(redirects,0);assert.equal(clears,0)}finally{globalThis.window=previous}
 });
 test('new 201 and replay 200 are accepted by the same event adapter',async()=>{let count=0;await fixtureFetch(async()=>{const api=driverTimelineAccess('LOGIN');assert.equal((await api.submit(event())).replayed,false);assert.equal((await api.submit(event())).replayed,true)},async()=>json({id:'r',receivedAt:now(),replayed:count++>0},count===1?201:200))});
-test('all operational states keep passenger lifecycle and drop-off separate',()=>{assert.equal(progressLabels.UNKNOWN,'Progress not recorded');assert.deepEqual(actionsFor('SCHEDULED'),actionsFor('UNKNOWN'));assert.equal(actionsFor('IN_PROGRESS').includes('TRIP_STARTED'),false);assert.equal(actionsFor('IN_PROGRESS').includes('PASSENGER_PICKED_UP'),true);assert.equal(actionsFor('IN_PROGRESS').includes('DROPPED_OFF'),true);assert.deepEqual(actionsFor('COMPLETED'),['NOTE']);assert.deepEqual(actionsFor('CANCELLED'),['NOTE']);});
+test('all operational states keep passenger lifecycle and drop-off separate',()=>{assert.equal(progressLabels.UNKNOWN,'Progress not recorded');assert.deepEqual(actionsFor('SCHEDULED'),actionsFor('UNKNOWN'));assert.equal(actionsFor('IN_PROGRESS').includes('TRIP_STARTED'),true);assert.equal(actionsFor('IN_PROGRESS').includes('PASSENGER_PICKED_UP'),true);assert.equal(actionsFor('IN_PROGRESS').includes('DROPPED_OFF'),true);assert.deepEqual(actionsFor('COMPLETED'),['NOTE']);assert.deepEqual(actionsFor('CANCELLED'),['NOTE']);});
 test('validation permits photo-only notes, rejects blank delays, bad coordinates and clocks',()=>{
  const starts=context().booking.startsAt;assert.equal(validateEntry(event('NOTE'),starts,1),null);assert.match(validateEntry(event('DELAY',{note:'  '}),starts,0),/note/);assert.match(validateEntry(event('NOTE',{note:'x'.repeat(4001)}),starts),/4,000/);assert.match(validateEntry(event('NOTE',{note:'ok'}),starts,11),/10/);
  assert.equal(validLocation({latitude:91,longitude:1,accuracyMeters:0,capturedAt:now()}),false);assert.equal(validLocation({latitude:1,longitude:1,accuracyMeters:-1,capturedAt:now()}),false);
@@ -93,20 +93,17 @@ test('screens share composer and enforce exact admin role without mutation on re
  await fixtureFetch(async()=>await assert.rejects(()=>putTimelinePhoto(intent,blob),e=>e.retryable&&e.retryAfterMs===4000),async()=>new Response('',{status:429,headers:{'retry-after':'4'}}));
  });
 
-test('next milestone follows the natural sequence without making earlier steps mandatory',()=>{
- const trip=context().trips[0];const seen=[];
- for(const type of milestoneOrder){assert.equal(nextMilestone(trip,seen),type);seen.push(event(type));}
- assert.equal(nextMilestone({...trip,operationalStatus:'IN_PROGRESS'},[]),'PASSENGER_PICKED_UP');
- assert.equal(nextMilestone(trip,[event('DROPPED_OFF')]),'TRIP_COMPLETED');
- assert.equal(nextMilestone(trip,[event('NOTE')]),'TRIP_STARTED');
+test('multiple journeys remain available within one active assignment',async()=>{
+ const ctx=context();ctx.trips[0].operationalStatus='IN_PROGRESS';
+ const sequence=['TRIP_STARTED','PASSENGER_PICKED_UP','DROPPED_OFF','TRIP_STARTED','PASSENGER_PICKED_UP','ARRIVED','DROPPED_OFF'];
+ for(const type of sequence){assert.ok(actionsFor('IN_PROGRESS').includes(type));assert.equal(assignmentProblem(event(type),ctx),null)}
+ const entries=sequence.map((type,index)=>newQueueItem(accessScope('LOGIN','driver','booking'),'booking',event(type,{occurredAt:new Date(Date.now()-10000+index).toISOString()}),[]));
+ const api=adapter(ctx);await processTimelineQueue(api,'booking',store(entries));assert.deepEqual(api.sent.map(e=>e.type),sequence);
+ assert.ok(api.sent.every(e=>e.tripId==='trip'));assert.equal(api.sent.some(e=>e.type==='TRIP_COMPLETED'),false);
 });
-test('recommendations isolate assignments, include saved updates, and respect completed or reopened context',()=>{
- const trip=context().trips[0];
- assert.equal(nextMilestone(trip,[event('ARRIVED',{tripId:'other'}),event('DROPPED_OFF',{assignmentVersion:6})]),'TRIP_STARTED');
- assert.equal(nextMilestone(trip,[],[event('TRIP_STARTED')]),'PASSENGER_PICKED_UP');
- assert.equal(nextMilestone(trip,[],[event('TRIP_COMPLETED')]),null);
- for(const status of ['COMPLETED','CANCELLED'])assert.equal(nextMilestone({...trip,operationalStatus:status},[]),null);
- const old=event('TRIP_COMPLETED',{occurredAt:new Date(Date.now()-60000).toISOString()});
- assert.equal(nextMilestone(trip,[old]),'TRIP_STARTED');
- assert.equal(nextMilestone({...trip,operationalStatus:'IN_PROGRESS'},[old,event('PASSENGER_PICKED_UP')]),'ARRIVED');
+test('completion of one assignment does not prevent another assignment from reporting',()=>{
+ const ctx=context();const first=ctx.trips[0];first.operationalStatus='COMPLETED';first.completedAt=now();
+ ctx.trips.push({...first,id:'second-trip',operationalStatus:'SCHEDULED',completedAt:null});
+ assert.equal(assignmentProblem(event('PASSENGER_PICKED_UP',{tripId:'second-trip'}),ctx),null);
+ assert.match(assignmentProblem(event('TRIP_STARTED',{occurredAt:new Date(Date.now()+1000).toISOString()}),ctx),/completed/);
 });

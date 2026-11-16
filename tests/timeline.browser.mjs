@@ -23,6 +23,7 @@ await session.route('**/api/v1/**',async route=>{
  if(path.endsWith('/events')&&method==='POST'){
   const body=request.postDataJSON();const replayed=receipts.has(body.clientEventId);const receipt=receipts.get(body.clientEventId)||{id:`receipt-${receipts.size}`,receivedAt:current(),replayed:false};
   if(!replayed){receipts.set(body.clientEventId,receipt);events.push({...body,id:receipt.id,bookingId:'booking',driverId:'linked-driver',driverNameSnapshot:'Linked Driver',actorAccountId:null,linkId:'fixture',note:body.note||null,location:body.location||null,receivedAt:receipt.receivedAt,backdated:false,accessMethod:'LINK',photos:(body.photoIds||[]).map(id=>({id})),correctsEventId:body.correctsEventId||null,correctionReason:body.correctionReason||null});}
+  if(body.type==='TRIP_COMPLETED'){const trip=ctx.trips.find(t=>t.id===body.tripId);trip.operationalStatus='COMPLETED';trip.completedAt=body.occurredAt;}
   if(uncertain){uncertain=false;return route.abort('timedout')}
   return respond({...receipt,replayed},replayed?200:201);
  }
@@ -35,30 +36,33 @@ try{
  await page.locator('.driver-primary-action').waitFor();
  await page.screenshot({path:'/tmp/timeline-driver-mobile.png',fullPage:true});assert.equal(new URL(page.url()).hash,'');assert.equal(calls.filter(c=>c.method==='POST').length,0);assert.equal(calls.some(c=>c.path.includes('/auth/')),false);
  assert.equal(await page.evaluate(()=>Object.keys(localStorage).length),0);
- assert.equal(await page.getByLabel('Trip to update',{exact:true}).count(),0);
+ assert.equal(await page.getByLabel('Assignment to update',{exact:true}).count(),0);
  assert.equal(await page.getByRole('button',{name:'Clear access session',exact:true}).count(),0);
- await page.getByRole('button',{name:'Passenger dropped off',exact:true}).click();
+ await page.getByRole('button',{name:'Post update',exact:true}).click();
+ await page.getByLabel('What happened?',{exact:true}).selectOption('DROPPED_OFF');
  assert.equal(await page.getByLabel('Note (optional)').isVisible(),true);
  assert.equal(await page.getByLabel('Photos (optional)').isVisible(),true);
  assert.equal(await page.getByRole('button',{name:'Include my location',exact:true}).count(),0);
- await page.getByRole('button',{name:'Confirm update',exact:true}).click();
+ await page.getByRole('button',{name:'Save update',exact:true}).click();
  await page.getByText('Update sent.',{exact:true}).waitFor();
+ await page.waitForFunction(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Post update');return button&&!button.disabled});
  assert.equal(await page.getByRole('region',{name:'Saved updates',exact:true}).count(),0);
  assert.equal(events[0].type,'DROPPED_OFF');assert.equal(events.some(e=>e.type==='TRIP_COMPLETED'),false);
  uncertain=true;
- await page.getByRole('button',{name:'Add note',exact:true}).click();
+ await page.getByRole('button',{name:'Post update',exact:true}).click();
  await page.getByLabel('Note (optional)').fill('Accepted once despite timeout');
  await page.getByRole('button',{name:'Save update',exact:true}).click();
  await page.getByText('Update saved on this device. It will send when connected while this page is open.',{exact:true}).waitFor();
  await page.getByText('1 update waiting to send',{exact:true}).click();
- await page.getByText('Note / photos · Queued',{exact:true}).waitFor();
+ await page.getByText('General update · Queued',{exact:true}).waitFor();
  await until(()=>events.some(e=>e.note==='Accepted once despite timeout'));const uncertainBody=events.find(e=>e.note==='Accepted once despite timeout');assert.equal(uncertainBody.submissionMode,'ONLINE');
  await page.getByRole('button',{name:'Retry this update',exact:true}).click();
  await page.getByText('Update sent.',{exact:true}).waitFor();
+ await page.waitForFunction(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Post update');return button&&!button.disabled});
  assert.equal(await page.getByRole('region',{name:'Saved updates',exact:true}).count(),0);
  const retries=calls.filter(c=>c.method==='POST'&&JSON.parse(c.body).clientEventId===uncertainBody.clientEventId);assert.equal(retries.length,2);assert.equal(retries[0].body,retries[1].body);
  await session.setOffline(true);
- await page.getByRole('button',{name:'Add note',exact:true}).click();
+ await page.getByRole('button',{name:'Post update',exact:true}).click();
  await page.getByLabel('Note (optional)').fill('Offline device entry');
  await page.getByRole('button',{name:'Save update',exact:true}).click();
  await page.getByText('1 update waiting to send',{exact:true}).waitFor();
@@ -74,9 +78,44 @@ try{
  await page.getByRole('button',{name:'Retry this update',exact:true}).click();
  await page.getByRole('region',{name:'Saved updates',exact:true}).waitFor({state:'detached'});
  assert.equal(events.find(e=>e.note==='Offline device entry').submissionMode,'OFFLINE_SYNC');
- await page.getByRole('button',{name:'Complete trip',exact:true}).click();
+ await page.getByText('Finish assignment',{exact:true}).click();
+ await page.getByRole('button',{name:'Finish all assigned journeys',exact:true}).click();
  assert.equal(await page.getByRole('dialog').getByText('Station → Hotel',{exact:true}).count(),1);
  await page.keyboard.press('Escape');assert.equal(await page.getByRole('dialog').count(),0);
+ // Repeat whole journey cycles under the same stored trip.
+ for(const type of ['TRIP_STARTED','PASSENGER_PICKED_UP','DROPPED_OFF','TRIP_STARTED','PASSENGER_PICKED_UP','DROPPED_OFF']){
+  await page.getByRole('button',{name:'Post update',exact:true}).click();
+  await page.getByLabel('What happened?',{exact:true}).selectOption(type);
+  await page.getByRole('button',{name:'Save update',exact:true}).click();
+  await page.getByText('Update sent.',{exact:true}).waitFor();
+ await page.waitForFunction(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Post update');return button&&!button.disabled});
+ }
+ assert.equal(events.filter(e=>e.type==='TRIP_STARTED').length,2);
+ assert.equal(events.some(e=>e.type==='TRIP_COMPLETED'),false);
+ assert.equal(await page.getByRole('region',{name:'Update history'}).isVisible(),true);
+ await page.screenshot({path:'/tmp/timeline-driver-mobile.png',fullPage:true});
+ // Completing this assignment leaves another trip independently available.
+ ctx.trips.push({...ctx.trips[0],id:'second-trip',destination:'Airport',operationalStatus:'SCHEDULED'});
+ await page.getByRole('button',{name:'Reload booking',exact:true}).click();
+ await page.getByLabel('Assignment to update',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'Finish all assigned journeys',exact:true}).click();
+ assert.equal(await page.getByRole('button',{name:'Finish assignment',exact:true}).isDisabled(),true);
+ assert.equal(await page.getByLabel('What happened?',{exact:true}).count(),0);
+ await page.getByRole('checkbox',{name:'All journeys for this assignment are finished'}).check();
+ await page.getByRole('button',{name:'Finish assignment',exact:true}).click();
+ await page.getByText('Update sent.',{exact:true}).waitFor();
+ await page.waitForFunction(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Post update');return button&&!button.disabled});
+ assert.equal(events.filter(e=>e.type==='TRIP_COMPLETED').length,1);
+ assert.equal(ctx.trips[0].operationalStatus,'COMPLETED');
+ assert.equal(ctx.trips[1].operationalStatus,'SCHEDULED');
+ await page.getByLabel('Assignment to update',{exact:true}).selectOption('second-trip');
+ await page.getByRole('button',{name:'Post update',exact:true}).click();
+ await page.getByLabel('What happened?',{exact:true}).selectOption('PASSENGER_PICKED_UP');
+ await page.getByRole('button',{name:'Save update',exact:true}).click();
+ await page.getByText('Update sent.',{exact:true}).waitFor();
+ await page.waitForFunction(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Post update');return button&&!button.disabled});
+ assert.equal(events.at(-1).tripId,'second-trip');
+
  deny=true;await page.getByRole('button',{name:'Reload booking',exact:true}).click();await page.getByRole('heading',{name:'Access unavailable',exact:true}).waitFor();
  assert.equal(await page.getByText('Fixture Passenger',{exact:false}).count(),0);assert.equal(await page.getByRole('heading',{name:'Timeline',exact:true}).count(),0);
  const raw=await page.evaluate(()=>new Promise((resolve,reject)=>{const r=indexedDB.open('feedback-driver-timeline');r.onsuccess=()=>{const q=r.result.transaction('entries').objectStore('entries').getAll();q.onsuccess=()=>resolve(JSON.stringify(q.result));q.onerror=reject};r.onerror=reject}));assert.equal(raw.includes('fixture-link'),false);
@@ -85,7 +124,7 @@ try{
  for(const role of ['CORE_ADMIN','CORE_REPORT_VIEWER','CORE_DATA_ENTRY','CUSTOMER']){
   const isolated=await browser.newContext();const p=await isolated.newPage();let timelineCalls=0;
   await isolated.route('**/api/v1/**',route=>{if(route.request().url().includes('/auth/me'))return route.fulfill({contentType:'application/json',body:JSON.stringify({data:{user:{role,accountId:'fixture',displayName:'Fixture role'}}})});timelineCalls++;return route.fulfill({status:403,body:''})});
-  await p.goto(base+'/admin/bookings/detail?bookingId=booking');await p.getByRole('heading',{name:'Access forbidden',exact:true}).waitFor();assert.equal(timelineCalls,0);await isolated.close();
+  await p.goto(base+'/admin/bookings/detail?bookingId=booking');await p.getByRole('heading',{name:'Workspace unavailable',exact:true}).waitFor();assert.equal(timelineCalls,0);await isolated.close();
  }
  console.log('PASS: core and customer roles cannot render feedback timeline administration.');
  const adminSession=await browser.newContext({viewport:{width:1280,height:900}}),adminPage=await adminSession.newPage();
@@ -195,7 +234,7 @@ try{
  assert.equal(await adminPage.getByRole('tab',{name:'Trip updates',exact:true}).getAttribute('aria-selected'),'true');
  await adminSession.close();
  console.log('PASS: admin booking integration, unknown progress, no automatic link issuance, explicit link issue/regeneration/revocation, reason/confirmation and operational refresh.');
- const loginSession=await browser.newContext({viewport:{width:390,height:844}}),loginPage=await loginSession.newPage();let loginPosts=0;let loginContext={...ctx,driverId:'login-driver',accessMethod:'LOGIN'};let lastLoginBody;const loginEvents=[];
+ const loginSession=await browser.newContext({viewport:{width:390,height:844}}),loginPage=await loginSession.newPage();let loginPosts=0;let loginContext={...ctx,driverId:'login-driver',accessMethod:'LOGIN',trips:[{...ctx.trips[0],operationalStatus:'SCHEDULED',startedAt:null,completedAt:null}]};let lastLoginBody;const loginEvents=[];
  loginPage.on('pageerror',e=>{throw e});
  await loginSession.route('**/api/v1/**',route=>{
   const request=route.request(),path=new URL(request.url()).pathname;
@@ -208,45 +247,47 @@ try{
   throw new Error('Unexpected login API: '+path);
  });
  await loginPage.goto(base+'/driver/bookings/detail?bookingId=booking');await loginPage.getByRole('heading',{name:'TEST-BOOKING',exact:true}).waitFor();assert.equal(loginPosts,0);
- await loginPage.getByRole('button',{name:'Add note',exact:true}).click();await loginPage.getByLabel('Note (optional)').fill('Login driver update');assert.equal(await loginPage.getByLabel('Photos (optional)').isVisible(),true);assert.equal(await loginPage.getByLabel('Note (optional)').inputValue(),'Login driver update');await loginPage.getByRole('button',{name:'Save update',exact:true}).click();await loginPage.getByText('Update sent.',{exact:true}).waitFor();assert.equal(loginPosts,1);
+ await loginPage.getByRole('button',{name:'Post update',exact:true}).click();await loginPage.getByLabel('Note (optional)').fill('Login driver update');assert.equal(await loginPage.getByLabel('Photos (optional)').isVisible(),true);assert.equal(await loginPage.getByLabel('Note (optional)').inputValue(),'Login driver update');await loginPage.getByRole('button',{name:'Save update',exact:true}).click();await loginPage.getByText('Update sent.',{exact:true}).waitFor();assert.equal(loginPosts,1);
  const nav=loginPage.getByRole('navigation',{name:'Driver primary navigation',exact:true});
  const boxes=await nav.getByRole('link').evaluateAll(links=>links.map(link=>({top:link.getBoundingClientRect().top,height:link.getBoundingClientRect().height,width:link.getBoundingClientRect().width})));
  assert.equal(boxes.length,4);assert.equal(new Set(boxes.map(b=>b.top)).size,1);assert.equal(boxes.every(b=>b.height>=44&&b.width>=44),true);
  assert.equal(await loginPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await loginPage.screenshot({path:'/tmp/timeline-driver-login-mobile.png',fullPage:true});
- // Every milestone follows the recorded sequence, with visible optional note and photo inputs.
- for(const [label,confirm] of [['Start trip','Confirm start'],['Passenger picked up','Confirm update'],['Arrived','Confirm update'],['Passenger dropped off','Confirm update'],['Complete trip','Confirm completion']]){
-  await loginPage.waitForFunction(label=>document.querySelector('.driver-primary-action')?.textContent===label,label);
-  assert.equal(await loginPage.getByRole('button',{name:'Add note',exact:true}).isVisible(),true);assert.equal(await loginPage.getByRole('button',{name:'Add photos',exact:true}).isVisible(),true);
-  await loginPage.locator('.driver-primary-action').click();assert.equal(await loginPage.getByLabel('Note (optional)').isVisible(),true);assert.equal(await loginPage.getByLabel('Photos (optional)').isVisible(),true);
+ // Login uses the same repeatable composer, including optional details.
+ const ready=()=>loginPage.waitForFunction(()=>{const b=document.querySelector('.driver-primary-action');return b&&!b.disabled});
+ for(const type of ['TRIP_STARTED','PASSENGER_PICKED_UP','ARRIVED','DROPPED_OFF','TRIP_STARTED']){
+  await ready();
+  await loginPage.getByRole('button',{name:'Post update',exact:true}).click();
+  await loginPage.getByLabel('What happened?',{exact:true}).selectOption(type);
+  assert.equal(await loginPage.getByLabel('Photos (optional)').isVisible(),true);
   const before=loginPosts;
-  await loginPage.getByLabel('Note (optional)').fill(`Optional note for ${label}`);await loginPage.getByRole('button',{name:confirm,exact:true}).click();await loginPage.getByText('Update sent.',{exact:true}).waitFor();
-  await until(()=>loginPosts===before+1);
-  assert.equal(lastLoginBody.note,`Optional note for ${label}`);
-  await loginPage.getByRole('dialog').waitFor({state:'detached'});
+  await loginPage.getByLabel('Note (optional)').fill(`Optional note for ${type}`);
+  await loginPage.getByRole('button',{name:'Save update',exact:true}).click();
+  await until(()=>loginPosts===before+1);await ready();
+  assert.equal(lastLoginBody.note,`Optional note for ${type}`);
  }
- assert.equal(loginPosts,6);assert.equal(await loginPage.locator('.driver-primary-action').count(),0);
+ assert.equal(loginPosts,6);
  const beforeMulti=loginPosts;
- // Recommendations also read milestones beyond the first history page.
- loginContext={...loginContext,trips:[{...ctx.trips[0],operationalStatus:'COMPLETED'}, {...ctx.trips[0],id:'active-trip',pickupLocation:'Airport',operationalStatus:'IN_PROGRESS',startedAt:current()}]};
- loginEvents.push(...Array.from({length:26},(_,i)=>({id:`older-${i}`,clientEventId:`older-client-${i}`,tripId:'active-trip',assignmentVersion:3,type:i===25?'PASSENGER_PICKED_UP':'NOTE',occurredAt:current(),recordedAt:current(),receivedAt:current(),driverNameSnapshot:'Login Driver',note:null,location:null,photos:[]})));
- await loginPage.reload();await loginPage.getByLabel('Trip to update',{exact:true}).waitFor();
- await loginPage.locator('#current-trip').waitFor();
- assert.equal(await loginPage.getByLabel('Trip to update',{exact:true}).inputValue(),'active-trip');
- await loginPage.locator('.driver-primary-action').waitFor();
- assert.equal(await loginPage.locator('.driver-primary-action').textContent(),'Arrived');
- await loginPage.getByRole('button',{name:'Complete trip',exact:true}).click();
+ loginContext={...loginContext,trips:[{...loginContext.trips[0],operationalStatus:'COMPLETED',completedAt:current()}, {...loginContext.trips[0],id:'active-trip',pickupLocation:'Airport',operationalStatus:'IN_PROGRESS',startedAt:current()}]};
+ await loginPage.reload();await loginPage.getByLabel('Assignment to update',{exact:true}).waitFor();
+ assert.equal(await loginPage.getByLabel('Assignment to update',{exact:true}).inputValue(),'active-trip');
+ await ready();
+ await loginPage.getByText('Finish assignment',{exact:true}).click();
+ await loginPage.getByRole('button',{name:'Finish all assigned journeys',exact:true}).click();
  assert.equal(loginPosts,beforeMulti);
  await loginPage.getByRole('dialog').getByText('Airport → Hotel',{exact:true}).waitFor();
- assert.equal(await loginPage.getByLabel('Note (optional)').isVisible(),true);
  await loginPage.waitForFunction(()=>document.activeElement?.id==='composer-title');
- await loginPage.getByRole('button',{name:'Confirm completion',exact:true}).focus();await loginPage.keyboard.press('Tab');
- assert.equal(await loginPage.getByLabel('Note (optional)').evaluate(el=>el===document.activeElement),true);
- await loginPage.getByRole('button',{name:'Confirm completion',exact:true}).click();await until(()=>loginPosts===beforeMulti+1);await loginPage.getByRole('dialog').waitFor({state:'detached'});await loginPage.getByText('Update sent.',{exact:true}).waitFor();
- assert.equal(loginPosts,beforeMulti+1);assert.equal(lastLoginBody.tripId,'active-trip');assert.equal(lastLoginBody.type,'TRIP_COMPLETED');assert.equal(lastLoginBody.note,undefined);
- await loginPage.getByLabel('Trip to update',{exact:true}).selectOption('trip');
- assert.equal(await loginPage.locator('.driver-primary-action').count(),0);
- assert.equal(await loginPage.getByRole('button',{name:'Report delay',exact:true}).count(),0);
+ assert.equal(await loginPage.getByRole('button',{name:'Finish assignment',exact:true}).isDisabled(),true);
+ await loginPage.getByRole('checkbox',{name:'All journeys for this assignment are finished'}).check();
+ await loginPage.getByRole('button',{name:'Finish assignment',exact:true}).focus();await loginPage.keyboard.press('Tab');
+ assert.equal(await loginPage.getByRole('checkbox').evaluate(el=>el===document.activeElement),true);
+ await loginPage.getByRole('button',{name:'Finish assignment',exact:true}).click();
+ await until(()=>loginPosts===beforeMulti+1);await ready();
+ assert.equal(lastLoginBody.tripId,'active-trip');assert.equal(lastLoginBody.type,'TRIP_COMPLETED');assert.equal(lastLoginBody.note,undefined);
+ await loginPage.getByLabel('Assignment to update',{exact:true}).selectOption('trip');
+ await loginPage.getByRole('button',{name:'Post update',exact:true}).click();
+ assert.deepEqual(await loginPage.getByLabel('What happened?',{exact:true}).locator('option').allTextContents(),['General update']);
+ await loginPage.keyboard.press('Escape');
  await loginSession.close();
- console.log('PASS: shared login screen, optional details, mobile navigation, multiple-trip selection, state-based primary action and explicit completion.');
+ console.log('PASS: shared login screen, optional details, mobile navigation, multiple-trip selection, repeatable journey updates and separate final completion.');
 }finally{await browser.close()}

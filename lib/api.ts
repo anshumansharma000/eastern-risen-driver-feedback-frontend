@@ -9,7 +9,7 @@ export type ApiErrorPresentation = Partial<Pick<NormalizedApiError,"code"|"userM
 
 const friendly:Record<string,string>={
   RESPONDENT_FEEDBACK_ALREADY_SUBMITTED:"Feedback has already been submitted with this phone number for this part of your journey.",
-  RESPONDENT_PHONE_INVALID:"Enter a valid international phone number including country code.",
+  RESPONDENT_PHONE_INVALID:"Check the phone number and the country code shown.",
   CLIENT_SUBMISSION_ID_CONFLICT:"This response identifier conflicts with another response. Your draft has been retained for recovery. Do not submit it as another traveller.",
   FEEDBACK_LINK_MODE_LOCKED:"The collection mode is fixed because passenger feedback has started.",
   ENGAGEMENT_FEEDBACK_ALREADY_SUBMITTED:"Feedback collection for this part of your journey is complete.",

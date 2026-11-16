@@ -9,3 +9,5 @@ catch {
 } }
 export const formatDateTime = (iso: string) => date(iso, timezone());
 export const formatTripRange = (start: string, end: string) => range(start, end, timezone());
+
+export const formatTimelineDay = (iso: string) => new Intl.DateTimeFormat('en-IN', { timeZone: timezone(), day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(iso));

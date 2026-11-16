@@ -1,12 +1,12 @@
 import { ApiError } from './api.ts';
 import type { AccessMethod, CreateTimelineEvent, DriverBookingContext, EventLocation, OperationalStatus, TimelineEvent, TimelineEventType } from './timeline-types.ts';
 export const progressLabels: Record<OperationalStatus, string> = { UNKNOWN: 'Progress not recorded', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled' };
-export const eventLabels: Record<TimelineEventType, string> = { TRIP_STARTED: 'Start trip', PASSENGER_PICKED_UP: 'Passenger picked up', ARRIVED: 'Arrived', DROPPED_OFF: 'Passenger dropped off', TRIP_COMPLETED: 'Complete trip', NOTE: 'Note / photos', DELAY: 'Delay', CORRECTION: 'Correction' };
+export const eventLabels: Record<TimelineEventType, string> = { TRIP_STARTED: 'Journey started', PASSENGER_PICKED_UP: 'Passenger picked up', ARRIVED: 'Arrived', DROPPED_OFF: 'Passenger dropped off', TRIP_COMPLETED: 'Finish all assigned journeys', NOTE: 'General update', DELAY: 'Delay', CORRECTION: 'Correction' };
 export function actionsFor(status: OperationalStatus): TimelineEventType[] {
     const base: TimelineEventType[] = ['NOTE', 'DELAY'];
     if (status === 'COMPLETED' || status === 'CANCELLED')
         return ['NOTE'];
-    return [...((status === 'IN_PROGRESS' ? ['PASSENGER_PICKED_UP'] : ['TRIP_STARTED', 'PASSENGER_PICKED_UP']) as TimelineEventType[]), 'ARRIVED', 'DROPPED_OFF', 'TRIP_COMPLETED', ...base];
+    return [...(['TRIP_STARTED', 'PASSENGER_PICKED_UP'] as TimelineEventType[]), 'ARRIVED', 'DROPPED_OFF', 'TRIP_COMPLETED', ...base];
 }
 export const accessScope = (method: AccessMethod, driver: string, booking: string) => JSON.stringify([method, driver, booking]);
 export function validLocation(l: EventLocation) { return Number.isFinite(l.latitude) && Math.abs(l.latitude) <= 90 && Number.isFinite(l.longitude) && Math.abs(l.longitude) <= 180 && Number.isFinite(l.accuracyMeters) && l.accuracyMeters >= 0 && Number.isFinite(Date.parse(l.capturedAt)); }
@@ -53,18 +53,4 @@ export function timelineError(error: unknown) { if (error instanceof ApiError)
     return `${recovery[error.code] || error.userMessage}${error.requestId ? ` (Support reference: ${error.requestId})` : ''}`; return error instanceof Error ? error.message : 'The update could not be sent. Your saved work remains here.'; }
 export function validateExpiry(value: string, endsAt: string) { const time = Date.parse(value); return Number.isFinite(time) && time > Date.now() && time <= Math.max(Date.parse(endsAt), Date.now()) + 30 * 86400000; }
 
-export const historyLabels: Record<TimelineEventType, string> = {TRIP_STARTED:"Trip started",PASSENGER_PICKED_UP:"Passenger picked up",ARRIVED:"Arrived",DROPPED_OFF:"Passenger dropped off",TRIP_COMPLETED:"Trip completed",NOTE:"Note",DELAY:"Delay reported",CORRECTION:"Correction"};
-
-export const milestoneOrder: TimelineEventType[] = ['TRIP_STARTED', 'PASSENGER_PICKED_UP', 'ARRIVED', 'DROPPED_OFF', 'TRIP_COMPLETED'];
-/** Recommendation only: milestones can still be recorded out of order. Context remains authoritative. */
-export function nextMilestone(trip: DriverBookingContext['trips'][number], events: Pick<TimelineEvent, 'tripId' | 'assignmentVersion' | 'type' | 'occurredAt'>[], pending: Pick<CreateTimelineEvent, 'tripId' | 'assignmentVersion' | 'type' | 'occurredAt'>[] = []): TimelineEventType | null {
-    if (trip.operationalStatus === 'COMPLETED' || trip.operationalStatus === 'CANCELLED') return null;
-    const relevant = events.filter(e => e.tripId === trip.id && e.assignmentVersion === trip.assignmentVersion);
-    // A previous completion with an active context indicates reopening. Do not reuse that sequence.
-    const completedAt = relevant.filter(e => e.type === 'TRIP_COMPLETED').reduce((latest, e) => Math.max(latest, Date.parse(e.occurredAt)), 0);
-    const current = [...relevant.filter(e => Date.parse(e.occurredAt) > completedAt), ...pending.filter(e => e.tripId === trip.id && e.assignmentVersion === trip.assignmentVersion && Date.parse(e.occurredAt) > completedAt)];
-    if (current.some(e => e.type === 'TRIP_COMPLETED')) return null;
-    let last = trip.operationalStatus === 'IN_PROGRESS' ? 0 : -1;
-    for (const event of current) last = Math.max(last, milestoneOrder.indexOf(event.type));
-    return milestoneOrder[last + 1] || null;
-}
+export const historyLabels: Record<TimelineEventType, string> = {TRIP_STARTED:"Journey started",PASSENGER_PICKED_UP:"Passenger picked up",ARRIVED:"Arrived",DROPPED_OFF:"Passenger dropped off",TRIP_COMPLETED:"All assigned journeys finished",NOTE:"General update",DELAY:"Delay reported",CORRECTION:"Correction"};

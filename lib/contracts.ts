@@ -115,7 +115,8 @@ export interface Booking {
   id:string; bookingReference:string; tourName:string|null; fileNumber:string|null; passengerName:string; passengerPhone:E164Phone|null; startsAt:string; endsAt:string; status:BookingStatus;
   notes:string|null; tripCount:number; createdAt:string; updatedAt:string; archivedAt:string|null;
 }
-export interface BookingDetail extends Booking { engagements:DriverEngagement[] }
+export interface FeedbackBranding { title: string | null; logo: string | null }
+export interface BookingDetail extends Booking { engagements:DriverEngagement[]; feedbackBranding?: FeedbackBranding }
 export interface CreateBookingRequest {
   bookingReference:string; tourName?:string|null; fileNumber?:string|null; passengerName:string; passengerPhone:E164Phone; startsAt:string; endsAt:string; notes?:string|null;
 }
@@ -141,6 +142,7 @@ export interface QuestionnaireSection { purpose:QuestionnairePurpose; title:stri
 export interface QuestionnaireSnapshot { schemaVersion:2; sections:QuestionnaireSection[] }
 export interface ConsentVersion { id: string; version: number; content: string; effectiveAt: string; retiredAt: string | null }
 export interface PassengerContext {
+  feedbackBranding?: FeedbackBranding;
   allowMultipleSubmissions: boolean;
   engagement:{id:string;sequenceNumber:number;bookingReference:string;driver:{displayName:string};trips:Array<{id:string;pickupLocation:string;destination:string;scheduledAt:string;scheduledEndAt:string;vehicle:Omit<VehicleSummary,"id">}>};
   questionnaire: QuestionnaireSnapshot; consent: ConsentVersion;
@@ -151,7 +153,7 @@ export type AnswerValue = number | string | boolean | string[];
 export interface FeedbackAnswer { questionId: string; value: AnswerValue }
 export interface SubmitFeedbackRequest {
   clientSubmissionId: string; questionnaireSnapshot: QuestionnaireSnapshot;
-  respondent: { name: string; phone: E164Phone; email: string; bookingReference: string; consentAccepted: true; consentedAt: string };
+  respondent: { name?: string; phone: E164Phone; email?: string; bookingReference?: string; consentAccepted: true; consentedAt: string };
   answers: FeedbackAnswer[]; submittedAt: string; submissionMode: "ONLINE" | "OFFLINE_SYNC"; photoId?: string;
 }
 export interface SubmissionReceipt { id: string; clientSubmissionId: string; engagementId: string; receivedAt: string; submissionMode: "ONLINE" | "OFFLINE_SYNC"; replayed: boolean; rewardEligible: boolean }

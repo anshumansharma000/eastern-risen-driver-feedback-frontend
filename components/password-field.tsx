@@ -4,9 +4,10 @@ import { useState, type InputHTMLAttributes } from "react";
 
 type PasswordFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
   label: string;
+  error?: string;
 };
 
-export function PasswordField({ id, label, required = true, ...props }: PasswordFieldProps) {
+export function PasswordField({ id, label, required = true, error, ...props }: PasswordFieldProps) {
   const [visible, setVisible] = useState(false);
   const inputId = id ?? props.name;
 
@@ -20,6 +21,8 @@ export function PasswordField({ id, label, required = true, ...props }: Password
           id={inputId}
           type={visible ? "text" : "password"}
           required={required}
+          aria-invalid={error ? true : props["aria-invalid"]}
+          aria-describedby={[props["aria-describedby"], error ? `${inputId}-error` : undefined].filter(Boolean).join(" ") || undefined}
         />
         <button
           className="password-toggle"
@@ -40,6 +43,7 @@ export function PasswordField({ id, label, required = true, ...props }: Password
           )}
         </button>
       </div>
+      {error && <small id={`${inputId}-error`} className="field-error" role="alert">{error}</small>}
     </div>
   );
 }

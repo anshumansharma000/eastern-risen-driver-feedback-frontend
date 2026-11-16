@@ -1,8 +1,8 @@
 export type E164Phone = `+${number}`;
 
 export const E164_PATTERN = /^\+[1-9]\d{7,14}$/;
-export const PHONE_ERROR = "Enter a valid phone number including country code.";
-export const PHONE_HELP = "Choose a country, then enter the national number.";
+export const PHONE_ERROR = "Check the phone number and country code.";
+export const PHONE_HELP = "India (+91) is the default. Enter a local number or paste a full number; you can change the country code.";
 
 export type PhoneCountry = { iso: string; name: string; callingCode: string };
 
@@ -61,23 +61,40 @@ export function phoneError(value: string | null | undefined, optional = false): 
 
 export type ParsedPhone = { country: PhoneCountry; nationalNumber: string; canonical: string; invalidLegacy: boolean };
 
-export function parsePhoneValue(value: string | null | undefined, defaultIso = "IN"): ParsedPhone {
-  const fallback = PHONE_COUNTRIES.find((country) => country.iso === defaultIso) || PHONE_COUNTRIES[0];
-  const raw = (value || "").trim();
-  if (!raw) return { country: fallback, nationalNumber: "", canonical: "", invalidLegacy: false };
+export type PhoneInputValue = { callingCode: string; nationalNumber: string; canonical: string; invalid: boolean };
 
-  if (raw.startsWith("+")) {
-    const normalized = `+${normalizeNationalNumber(raw)}`;
-    if (E164_PATTERN.test(normalized)) {
-      const digits = normalized.slice(1);
-      const country = [...PHONE_COUNTRIES]
-        .sort((left, right) => right.callingCode.length - left.callingCode.length)
-        .find((candidate) => digits.startsWith(candidate.callingCode));
-      if (country) return { country, nationalNumber: digits.slice(country.callingCode.length), canonical: normalized, invalidLegacy: false };
-    }
+/** Local input uses the selected code; longer input recognizes known prefixes or a code plus ten digits. */
+export function parsePhoneInput(value: string, defaultCallingCode = "+91"): PhoneInputValue {
+  const raw = value.trim();
+  const fallback = defaultCallingCode.startsWith("+") ? defaultCallingCode : `+${defaultCallingCode}`;
+  const result = (callingCode: string, nationalNumber: string, canonical: string): PhoneInputValue => ({
+    callingCode, nationalNumber, canonical, invalid: !!canonical && !E164_PATTERN.test(canonical),
+  });
+  if (!raw) return result(fallback, "", "");
+  // Formatting characters are allowed; letters and misplaced plus signs remain invalid.
+  const compact = raw.replace(/[\s().-]/g, "");
+  if (!/^(?:\+|00)?[1-9]\d*$/.test(compact)) return {...result(fallback, raw, raw), invalid: true};
+  const explicit = compact.startsWith("+") || compact.startsWith("00");
+  const digits = compact.replace(/^(?:\+|00)/, "");
+  if (!explicit && digits.length <= 10) {
+    const canonical = /^\+[1-9]\d{0,2}$/.test(fallback) ? `${fallback}${digits}` : raw;
+    return {...result(fallback, digits, canonical), invalid: !/^\+[1-9]\d{0,2}$/.test(fallback) || !E164_PATTERN.test(canonical)};
   }
+  // Known prefixes also support national numbers shorter or longer than ten digits.
+  const known = (explicit || digits.length > 10) ? [...PHONE_COUNTRIES]
+    .sort((a, b) => b.callingCode.length - a.callingCode.length)
+    .find(country => digits.startsWith(country.callingCode)) : undefined;
+  const prefixLength = known?.callingCode.length ?? (digits.length >= 11 && digits.length <= 13 ? digits.length - 10 : 0);
+  if (!prefixLength) return {...result(fallback, raw, raw), invalid: true};
+  return result(`+${digits.slice(0, prefixLength)}`, digits.slice(prefixLength), `+${digits}`);
+}
 
-  return { country: fallback, nationalNumber: raw, canonical: raw, invalidLegacy: true };
+export function parsePhoneValue(value: string | null | undefined, defaultIso = "IN"): ParsedPhone {
+  const fallback = PHONE_COUNTRIES.find(country => country.iso === defaultIso) || PHONE_COUNTRIES[0];
+  const parsed = parsePhoneInput(value || "", fallback.callingCode);
+  const code = parsed.callingCode.slice(1);
+  const country = PHONE_COUNTRIES.find(candidate => candidate.callingCode === code) || {iso: "CUSTOM", name: "Other country", callingCode: code};
+  return {country, nationalNumber: parsed.nationalNumber, canonical: parsed.canonical, invalidLegacy: parsed.invalid};
 }
 
 export function canonicalPhoneFromForm(data: FormData, name: string, optional = false): E164Phone | null | string {

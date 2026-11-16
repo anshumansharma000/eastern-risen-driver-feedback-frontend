@@ -137,7 +137,7 @@ export function AdminFeedbackDetailView({ feedbackId, view }: { feedbackId: stri
     <div className="screen-feedback-detail">
       <button className="button button-secondary feedback-back" onClick={() => router.push(`/admin/feedback?view=${view}`)}>← Back to {view==="DRIVER"?"driver":"company"} feedback</button>
       <div className="page-header feedback-detail-header">
-        <div><p className="eyebrow">{view==="DRIVER"?"Driver feedback":"Company feedback"}</p><h1>{detail.respondent.name}</h1><p>Booking {detail.bookingReference} · submitted {formatInTimezone(detail.submittedAt, timezone)}</p></div>
+        <div><p className="eyebrow">{view==="DRIVER"?"Driver feedback":"Company feedback"}</p><h1>{detail.respondent.name||"Traveller feedback"}</h1><p>Booking {detail.bookingReference} · submitted {formatInTimezone(detail.submittedAt, timezone)}</p></div>
         <div className="feedback-header-actions"><StatusBadge label={detail.reviewState === "NORMAL" ? "Normal" : detail.reviewState === "FLAGGED" ? "Flagged" : "Archived"} tone={detail.reviewState === "FLAGGED" ? "warning" : archived ? "neutral" : "success"} /><button className="button" type="button" onClick={openPrintDialog}>Print feedback</button></div>
       </div>
       {error && <ErrorAlert message={errorMessage(error)} requestId={error.requestId} />}
@@ -159,7 +159,7 @@ export function AdminFeedbackDetailView({ feedbackId, view }: { feedbackId: stri
           <p>Choose who this printed feedback copy is for.</p>
           <div className="print-copy-options">
             <button type="button" className="print-copy-option" onClick={() => setPrintDialogStep("AGENT_BRAND")}><span className="print-copy-icon" aria-hidden="true">AG</span><span><strong>Agent copy</strong><small>Choose the agent name and logo for the report header.</small></span></button>
-            <button type="button" className="print-copy-option" onClick={() => printCopy("USER")}><span className="print-copy-icon" aria-hidden="true">{initials(detail.respondent.name)}</span><span><strong>User copy</strong><small>{detail.respondent.name} will be the primary heading.</small></span></button>
+            <button type="button" className="print-copy-option" onClick={() => printCopy("USER")}><span className="print-copy-icon" aria-hidden="true">{initials(detail.respondent.name)}</span><span><strong>User copy</strong><small>{detail.respondent.name||"Traveller feedback"} will be the primary heading.</small></span></button>
           </div>
         </> : <>
           <h2 id="print-title">Choose the agent brand</h2>
@@ -217,7 +217,7 @@ function unique(values: string[]) { return [...new Set(values.map(value => value
 function PrintReport({ detail, answers, timezone, mode, brand, view }: { detail: AdminFeedbackDetail; answers: AdminFeedbackAnswer[]; timezone: string; mode: PrintMode; brand: AgentBrand; view:AdminFeedbackView }) {
   const userCopy = mode === "USER";
   return <article className="print-feedback-report" aria-hidden="true">
-    <header className="print-report-header"><p>{userCopy ? "User copy" : "Agent copy"}</p>{userCopy ? <h1>{detail.respondent.name}</h1> : <div className="print-report-brand"><img src={`${basePath}/${brand.logo}`} alt="" aria-hidden="true" /><h1>{brand.name}</h1></div>}<h2>{view==="DRIVER"?"Driver":"Company"} feedback report</h2><span>{userCopy ? `Issued by ${COMPANY_NAME}` : `Prepared for ${detail.respondent.name}`}</span></header>
+    <header className="print-report-header"><p>{userCopy ? "User copy" : "Agent copy"}</p>{userCopy ? <h1>{detail.respondent.name||"Traveller feedback"}</h1> : <div className="print-report-brand"><img src={`${basePath}/${brand.logo}`} alt="" aria-hidden="true" /><h1>{brand.name}</h1></div>}<h2>{view==="DRIVER"?"Driver":"Company"} feedback report</h2><span>{userCopy ? `Issued by ${COMPANY_NAME}` : `Prepared for ${detail.respondent.name||"Traveller feedback"}`}</span></header>
     <section className="print-report-summary"><div><span>Booking reference</span><strong>{detail.bookingReference}</strong></div><div><span>Submitted</span><strong>{formatInTimezone(detail.submittedAt, timezone)}</strong></div><div><span>Overall score</span><strong>{scoreLabel(detail.overallScore)}</strong></div></section>
     <section className="print-report-details"><div><h2>Passenger</h2><Definition items={[["Name", detail.respondent.name], ["Phone", detail.respondent.phone], ["Email", detail.respondent.email]]} /></div><div><h2>Driver engagement {detail.engagement.sequenceNumber}</h2><Definition items={[["Driver",detail.driver.displayName],["Covered trips",String(detail.trips.length)],...detail.trips.map((trip,index)=>[`Trip ${index+1}`,`${trip.pickupLocation} → ${trip.destination} · ${trip.vehicle.displayName}`] as [string,string])]} /></div></section>
     <AnswerList answers={answers} print />
@@ -225,6 +225,6 @@ function PrintReport({ detail, answers, timezone, mode, brand, view }: { detail:
   </article>;
 }
 
-function Definition({ items }: { items: Array<[string, string]> }) { return <dl className="definition-list">{items.map(([term, value]) => <div key={term}><dt>{term}</dt><dd>{value}</dd></div>)}</dl>; }
+function Definition({ items }: { items: Array<[string, string]> }) { return <dl className="definition-list">{items.map(([term, value]) => <div key={term}><dt>{term}</dt><dd>{value||"Not provided"}</dd></div>)}</dl>; }
 function initials(value: string) { return value.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase()).join("") || "U"; }
 function formatAdminBytes(bytes:number){return bytes<1024*1024?`${Math.max(1,Math.round(bytes/1024))} KB`:`${(bytes/(1024*1024)).toFixed(1)} MB`}

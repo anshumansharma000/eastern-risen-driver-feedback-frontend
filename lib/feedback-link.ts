@@ -42,7 +42,7 @@ export async function copyFeedbackLink(feedbackLink: string, clipboard: Pick<Cli
 
 export async function shareFeedbackLink(feedbackLink: string, share: (data: ShareData) => Promise<void>, allowMultipleSubmissions=false) {
   try {
-    await share({ title: "Passenger feedback", text: allowMultipleSubmissions ? "Each traveller can share feedback once for this part of the journey using their own phone number, including country code." : "Share feedback about your trip", url: feedbackLink });
+    await share({ title: "Passenger feedback", text: allowMultipleSubmissions ? "Each traveller can share feedback once for this part of the journey using their own phone number. India (+91) is preselected; they can change the country code." : "Share feedback about your trip", url: feedbackLink });
     return "shared" as const;
   } catch (cause) {
     if (typeof cause === "object" && cause !== null && "name" in cause && cause.name === "AbortError") return "cancelled" as const;

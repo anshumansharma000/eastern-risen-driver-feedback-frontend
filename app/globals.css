@@ -365,3 +365,56 @@ a { color: inherit; text-decoration: none; }
 .feedback-collection-mode .field-help { margin:.35rem 0 0; }
 .feedback-sharing-actions { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:flex-end; gap:.65rem; margin:0; padding:0; border:0; min-width:0; }
 @media (max-width:640px) { .feedback-sharing-actions > * { width:100%; } }
+
+/* Keep journey content within narrow screens and put driver tasks first. */
+.trip-list > *, .trip-card, .trip-card-head > div, .trip-actions > *, .feedback-collection-controls { min-width:0; }
+.trip-card { overflow-wrap:anywhere; }
+.trip-card-head { flex-wrap:wrap; }
+.trip-card-head > div { flex:1 1 200px; }
+.trip-card-head > .status { flex:0 1 auto; max-width:100%; width:auto; }
+.feedback-sharing-actions > *, .whatsapp-share .button { max-width:100%; }
+.feedback-mode-status { display:grid; gap:.2rem; margin:.25rem 0 1rem; font-size:.86rem; }
+.feedback-mode-status span { color:var(--muted-foreground); }
+.driver-feedback-summary { margin-bottom:1.25rem; }
+@media (max-width:600px) {
+  .driver-feedback-summary { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem; }
+  .driver-feedback-summary .stat { padding:.8rem; }
+  .driver-feedback-summary .stat span { font-size:.65rem; letter-spacing:.06em; }
+  .driver-feedback-summary .stat strong { margin:.15rem 0; font-size:1.8rem; }
+  .driver-feedback-summary .stat small { display:block; font-size:.75rem; }
+  .driver-shell .page-header h1 { font-size:2.4rem; }
+  .driver-shell .page-header { gap:.8rem; margin-bottom:1rem; }
+  .driver-shell .page-header p { margin-top:.4rem; }
+  .trip-card { padding:1rem; }
+  .trip-card-head { gap:.6rem; }
+  .trip-card-head > div { flex-basis:100%; }
+  .feedback-sharing-actions { justify-content:stretch; }
+  .feedback-sharing-actions .whatsapp-share > .button { width:100%; }
+  .auth-art { min-height:180px; gap:1rem; }
+  .auth-art h1 { font-size:2rem; margin:.5rem 0; }
+  .auth-art p, .auth-route { display:none; }
+  .auth-art .brand { max-width:180px; }
+  .auth-form-wrap { padding:1.5rem 1.2rem; }
+}
+
+.phone-field .phone-preview { color:var(--foreground); font-weight:650; overflow-wrap:anywhere; }
+
+.passenger-journey-details > summary { min-height:48px; cursor:pointer; font-weight:750; padding:.3rem 0; }
+.passenger-journey-details[open] > summary { margin-bottom:1rem; }
+.passenger-consent-help { color:var(--muted-foreground); font-size:.88rem; }
+.passenger-page [aria-invalid="true"], .passenger-page [data-feedback-error], #passenger-error-summary { scroll-margin-block:6rem; }
+@media (max-width:600px) {
+  .passenger-actions { padding-bottom:calc(.8rem + env(safe-area-inset-bottom)); gap:.6rem; }
+  .passenger-actions .button { min-width:0; white-space:normal; }
+}
+
+.passenger-optional-details { margin:1.25rem 0; border-block:1px solid var(--border); }
+.passenger-optional-details > summary { min-height:48px; padding:.7rem 0; cursor:pointer; font-weight:700; }
+.passenger-optional-details[open] > summary { margin-bottom:.6rem; }
+
+.feedback-branding-header { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; min-width: 0; overflow-wrap: anywhere; }
+.feedback-branding-logo { max-width: 9rem; max-height: 3rem; width: auto; height: auto; object-fit: contain; }
+.passenger-head .secure-note { flex-shrink: 0; }
+.booking-feedback-branding { display: grid; gap: .85rem; padding: 1rem; margin-bottom: 1rem; }
+.feedback-branding-preview { display: grid; gap: .5rem; border: 1px solid var(--border); border-radius: 10px; padding: .8rem; }
+.feedback-branding-fields { display: grid; gap: .85rem; border: 0; padding: 0; margin: 0; min-width: 0; }

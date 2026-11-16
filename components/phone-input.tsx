@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { buildE164, parsePhoneValue, PHONE_COUNTRIES, PHONE_ERROR, PHONE_HELP } from "@/lib/phone";
+import { parsePhoneInput, PHONE_COUNTRIES, PHONE_ERROR, PHONE_HELP } from "@/lib/phone";
 
 type PhoneInputProps = {
-  international?: boolean;
   name: string;
   label: string;
   required?: boolean;
@@ -14,39 +13,41 @@ type PhoneInputProps = {
   onValueChange?: (value: string) => void;
 };
 
-export function PhoneInput({ name, label, required = true, defaultValue, value, error, onValueChange, international=false }: PhoneInputProps) {
-  const initial = parsePhoneValue(value ?? defaultValue);
-  const [countryIso, setCountryIso] = useState(initial.country.iso);
-  const [nationalNumber, setNationalNumber] = useState(initial.nationalNumber);
-  const [submittedValue, setSubmittedValue] = useState(initial.canonical);
-  const [invalidLegacy, setInvalidLegacy] = useState(initial.invalidLegacy);
-  const country = PHONE_COUNTRIES.find((candidate) => candidate.iso === countryIso) || PHONE_COUNTRIES[0];
+export function PhoneInput({ name, label, required = true, defaultValue, value, error, onValueChange }: PhoneInputProps) {
+  const [state, setState] = useState(() => {
+    const initial = parsePhoneInput(value ?? defaultValue ?? "");
+    return {raw: initial.nationalNumber, callingCode: initial.callingCode, externalValue: value};
+  });
+  // Respond to parent resets (for example, the next traveller) without rewriting keystrokes.
+  if (value !== undefined && value !== state.externalValue) {
+    const next = parsePhoneInput(value);
+    setState({raw: next.nationalNumber, callingCode: next.callingCode, externalValue: value});
+  }
+  const parsed = parsePhoneInput(state.raw, state.callingCode);
+  const submittedValue = parsed.canonical;
   const errorId = `${name}-error`;
   const helpId = `${name}-help`;
-  const displayedError = error || (invalidLegacy ? PHONE_ERROR : undefined);
+  const previewId = `${name}-preview`;
+  const displayedError = error || (parsed.invalid ? PHONE_ERROR : undefined);
 
-  function update(nextCountryIso: string, nextNational: string) {
-    const nextCountry = PHONE_COUNTRIES.find((candidate) => candidate.iso === nextCountryIso) || PHONE_COUNTRIES[0];
-    const digits = nextNational.replace(/\D/g, "");
-    const canonical = buildE164(nextCountry.callingCode, digits);
-    setCountryIso(nextCountry.iso);
-    setNationalNumber(digits);
-    setSubmittedValue(canonical);
-    setInvalidLegacy(false);
-    onValueChange?.(canonical);
+  function update(raw: string, callingCode = state.callingCode, format = false) {
+    const next = parsePhoneInput(raw, callingCode);
+    setState({raw: format ? next.nationalNumber : raw, callingCode: format ? next.callingCode : callingCode, externalValue: next.canonical});
+    onValueChange?.(next.canonical);
   }
 
-  if(international)return <div className="field phone-field"><label htmlFor={name}>{label}</label><input id={name} name={name} className="input" type="tel" autoComplete="tel" required={required} placeholder="+91 98765 43210" value={value??""} onChange={event=>onValueChange?.(event.target.value)} aria-invalid={!!error} aria-describedby={`${helpId}${error?` ${errorId}`:""}`}/><small id={helpId}>Include + or 00 and your country code.</small>{error&&<small id={errorId} className="field-error" role="alert">{error}</small>}</div>;
   return <div className="field phone-field">
     <label htmlFor={`${name}-national`}>{label}{!required && " (optional)"}</label>
     <div className="phone-input-row">
-      <select className="select phone-country" name={`${name}Country`} aria-label={`${label} country`} value={country.iso} onChange={(event) => update(event.target.value, nationalNumber)}>
-        {PHONE_COUNTRIES.map((option) => <option key={option.iso} value={option.iso}>{option.iso} (+{option.callingCode})</option>)}
-      </select>
-      <input className="input" id={`${name}-national`} type="tel" inputMode="tel" autoComplete="tel-national" required={required} value={nationalNumber} maxLength={32} aria-invalid={Boolean(displayedError)} aria-describedby={`${helpId}${displayedError ? ` ${errorId}` : ""}`} onChange={(event) => update(country.iso, event.target.value)} />
+      <input className="input phone-country" id={`${name}-code`} name={`${name}Country`} type="tel" inputMode="tel" autoComplete="tel-country-code" list={`${name}-country-codes`} aria-label={`${label} country code`} value={state.callingCode} maxLength={4} aria-describedby={`${helpId} ${previewId}`} onChange={event => update(state.raw, event.target.value)} onBlur={() => update(state.raw, state.callingCode, true)} />
+      <datalist id={`${name}-country-codes`}>
+        {PHONE_COUNTRIES.filter((country,index,countries) => countries.findIndex(other => other.callingCode === country.callingCode) === index).map(country => <option key={country.iso} value={`+${country.callingCode}`}>{country.name}</option>)}
+      </datalist>
+      <input className="input" id={`${name}-national`} type="tel" inputMode="tel" autoComplete="tel-national" required={required} value={state.raw} maxLength={32} aria-invalid={Boolean(displayedError)} aria-describedby={`${helpId} ${previewId}${displayedError ? ` ${errorId}` : ""}`} onChange={event => update(event.target.value)} onBlur={() => update(state.raw, state.callingCode, true)} />
     </div>
     <input type="hidden" name={name} value={submittedValue} />
     <small id={helpId}>{PHONE_HELP}</small>
+    <small id={previewId} className="phone-preview" role="status">{submittedValue && !parsed.invalid ? `Number to use: ${submittedValue}` : "Country code can be edited above."}</small>
     {displayedError && <small className="field-error" id={errorId} role="alert">{displayedError}</small>}
   </div>;
 }

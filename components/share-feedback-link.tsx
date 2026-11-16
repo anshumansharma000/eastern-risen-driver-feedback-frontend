@@ -71,8 +71,8 @@ export function FeedbackCollectionControls({ engagementId, audience, status, chi
 
   return <div className="feedback-collection-controls">
     <div className="feedback-collection-mode" aria-busy={loading}>
-      <label className="check-row"><input type="checkbox" checked={details?.allowMultipleSubmissions ?? false} disabled={loading || !details || status !== "READY" || modeLocked} onChange={event => void changeMode(event.target.checked)} /><span>Allow feedback from multiple travellers</span></label>
-      <p className="field-help">{loading ? "Loading collection mode…" : status !== "READY" || modeLocked ? "The collection mode is fixed after passenger feedback starts." : "Applies to both WhatsApp and feedback link sharing. Changes save automatically."}</p>
+      {details && (status !== "READY" || modeLocked) ? <p className="feedback-mode-status"><strong>{details.allowMultipleSubmissions ? "Group feedback" : "Single traveller feedback"}</strong><span>Collection mode is fixed because feedback has started.</span></p> : <label className="check-row"><input type="checkbox" checked={details?.allowMultipleSubmissions ?? false} disabled={loading || !details} onChange={event => void changeMode(event.target.checked)} /><span>Allow feedback from multiple travellers</span></label>}
+      {!(details && (status !== "READY" || modeLocked)) && <p className="field-help">{loading ? "Loading collection mode…" : status !== "READY" || modeLocked ? "The collection mode is fixed after passenger feedback starts." : "Applies to both WhatsApp and feedback link sharing. Changes save automatically."}</p>}
       {error && <ErrorAlert {...error} />}
       {!loading && !details && <button className="button button-secondary" onClick={() => setLoadVersion(value => value + 1)}>Retry collection mode</button>}
     </div>
@@ -119,7 +119,7 @@ export function ShareFeedbackLinkAction({ engagementId, audience }: { engagement
   useEffect(()=>{const invalidate=()=>{setOpen(false);setDetails(null)};window.addEventListener(DATA_INVALIDATED_EVENT,invalidate);return()=>window.removeEventListener(DATA_INVALIDATED_EVENT,invalidate)},[]);
 
   return <>
-    <button className="button" onClick={show}>Share feedback link</button>
+    <button className={`button${audience === "driver" ? " button-secondary" : ""}`} onClick={show}>Share feedback link</button>
     {open && <FeedbackLinkDialog details={details} loading={loading} error={error} onRetry={() => void load()} onDismiss={() => !loading && setOpen(false)} onRenew={()=>details&&void renew(details.allowMultipleSubmissions)} onCloseCollection={audience==="admin"&&details?.allowMultipleSubmissions?()=>setConfirmClose(true):undefined} />}
     {confirmClose && <AlertDialog title="Close group feedback?" confirmLabel="Close group feedback" busy={closing} destructive onCancel={()=>setConfirmClose(false)} onConfirm={()=>void closeCollection()}><p>This ends collection and invalidates the shared link. Existing responses are retained. The collection cannot be reopened.</p></AlertDialog>}
   </>;
@@ -206,7 +206,7 @@ export function FeedbackLinkDialog({ details, loading = false, error = null, onR
     {loading && <div className="share-link-loading" aria-live="polite"><div className="skeleton" /><p>Retrieving the secure link…</p></div>}
     {error && <><ErrorAlert {...error} />{onRetry && <button className="button button-secondary" onClick={onRetry}>Try again</button>}</>}
     {details && <>
-      {details.allowMultipleSubmissions && <p>Share this link once with the group. Each traveller should respond using their own phone number, including country code.</p>}
+      {details.allowMultipleSubmissions && <p>Share this link once with the group. Each traveller should respond using their own phone number. India (+91) is preselected; they can change the country code.</p>}
       {onCloseCollection && <button className="button button-danger" disabled={loading} onClick={onCloseCollection}>Close group feedback</button>}
       {expired && <div className="alert" role="alert"><strong>This link has expired.</strong><div>Renew the link explicitly to continue collecting feedback.</div></div>}
       {expired&&onRenew&&<button className="button" disabled={loading} onClick={onRenew}>Renew expired link</button>}

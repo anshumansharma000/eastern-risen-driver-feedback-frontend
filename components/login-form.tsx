@@ -19,8 +19,19 @@ export function LoginForm({ role }: { role: "driver" | "admin" }) {
     () => new URLSearchParams(window.location.search).get("reason"),
     () => null,
   );
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(null); const form = new FormData(event.currentTarget);
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const identity = String(form.get("identity") ?? "").trim();
+    const errors: Record<string, string> = {};
+    if (!identity) errors.identity = role === "driver" ? "Enter your driver code." : "Enter your email address.";
+    else if (role === "admin" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity)) errors.identity = "Enter a valid email address.";
+    if (!form.get("password")) errors.password = "Enter your password.";
+    setFieldErrors(errors); setError(null);
+    if (Object.keys(errors).length) { document.getElementById(errors.identity ? "identity" : "password")?.focus(); return; }
+    form.set("identity", identity);
+    setBusy(true);
     const body = role === "driver" ? { driverCode: form.get("identity"), password: form.get("password") } : { email: form.get("identity"), password: form.get("password") };
     try {
       const response = await apiRequest<DataResponse<{user:Principal;expiresAt:string}>>(`/api/v1/auth/${role}/login`, { method:"POST", body:JSON.stringify(body) });
@@ -32,8 +43,8 @@ export function LoginForm({ role }: { role: "driver" | "admin" }) {
     {sessionExpired && !error && <div className="alert alert-info" role="status">Your session expired. Sign in again to continue.</div>}
     {transitionReason === "password-changed" && !error && <div className="alert alert-info" role="status">Password changed; sign in again.</div>}
     {error && <ErrorAlert {...error} />}
-    <div className="field"><label htmlFor="identity">{role === "driver" ? "Driver code" : "Email address"}</label><input className="input" id="identity" name="identity" type={role === "admin" ? "email" : "text"} autoComplete="username" maxLength={role === "admin" ? 320 : 64} required /></div>
-    <PasswordField id="password" name="password" label="Password" autoComplete="current-password" maxLength={128} />
+    <div className="field"><label htmlFor="identity">{role === "driver" ? "Driver code" : "Email address"}</label><input className="input" id="identity" name="identity" type={role === "admin" ? "email" : "text"} autoComplete="username" maxLength={role === "admin" ? 320 : 64} required aria-invalid={!!fieldErrors.identity} aria-describedby={fieldErrors.identity ? "identity-error" : undefined} onChange={() => setFieldErrors(current => ({...current, identity: ""}))} />{fieldErrors.identity && <small className="field-error" id="identity-error" role="alert">{fieldErrors.identity}</small>}</div>
+    <PasswordField id="password" name="password" label="Password" autoComplete="current-password" maxLength={128} error={fieldErrors.password} onChange={() => setFieldErrors(current => ({...current, password: ""}))} />
     {role === "driver" && <p className="login-help">Can’t sign in? Contact your administrator.</p>}
     <button className="button button-block" disabled={busy}>{busy ? "Signing in…" : "Sign in securely"}</button>
   </form>;

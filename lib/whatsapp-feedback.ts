@@ -5,8 +5,8 @@ import { feedbackLinkPath } from "./feedback-link.ts";
 export const MISSING_PASSENGER_PHONE_MESSAGE = "Add a passenger phone number to this booking before sharing on WhatsApp.";
 
 export function buildWhatsAppFeedbackMessage(recipientName: string, feedbackLink: string, allowMultipleSubmissions=false): string {
-  if (allowMultipleSubmissions) return `Hi ${recipientName},\n\nPlease share this link with your group. Each traveller can give feedback once for this part of the journey using their own phone number, including country code. People sharing a phone number count as one respondent.\n\nShare your feedback here: ${feedbackLink}`;
-  return `Hi ${recipientName},\n\nThank you for travelling with Eastern Risen. We would appreciate your feedback about your recent trip.\n\nShare your feedback here: ${feedbackLink}`;
+  if (allowMultipleSubmissions) return `Hi ${recipientName},\n\nPlease share this link with your group. Each traveller can give feedback once for this part of the journey using their own phone number. India (+91) is preselected; they can change the country code. People sharing a phone number count as one respondent.\n\nShare your feedback here: ${feedbackLink}`;
+  return `Hi ${recipientName},\n\nThank you for travelling with us. We would appreciate your feedback about your recent trip.\n\nShare your feedback here: ${feedbackLink}`;
 }
 
 export function buildWhatsAppShareUrl(phone: string, message: string): string {

@@ -24,7 +24,7 @@ import { formatTripRange } from "../lib/status.ts";
 import { copyFeedbackLink, feedbackLinkFromHandoff, feedbackLinkPath, formatFeedbackLinkExpiry, isFeedbackLinkExpired, passengerTokenFromSearch, shareFeedbackLink } from "../lib/feedback-link.ts";
 import { backendPassengerPhoneError, canonicalPassengerPhone, E164_ERROR, passengerPhoneError } from "../lib/booking-phone.ts";
 import { bookingMetadataErrors, bookingMetadataFromForm, FILE_NUMBER_MAX_LENGTH, optionalText, TOUR_NAME_MAX_LENGTH } from "../lib/booking-metadata.ts";
-import { buildE164, E164_PATTERN, optionalPhoneValue, parsePhoneValue, PHONE_COUNTRIES, phoneError } from "../lib/phone.ts";
+import { buildE164, E164_PATTERN, optionalPhoneValue, parsePhoneValue, parsePhoneInput, PHONE_COUNTRIES, phoneError } from "../lib/phone.ts";
 import { buildWhatsAppFeedbackMessage, buildWhatsAppShareUrl, openAdminFeedbackOnWhatsApp, openFeedbackOnWhatsApp } from "../lib/whatsapp-feedback.ts";
 import { omitPhotoForOffline, PHOTO_ACCEPT, PHOTO_PRELIMINARY_MAX_BYTES, uploadDirectToR2, uploadPassengerPhoto, validatePhotoFile } from "../lib/photo-upload.ts";
 import { engagementCards } from "../lib/engagements.ts";
@@ -447,7 +447,7 @@ test("every editable frontend phone field uses the shared country-aware input", 
   const shared = readFileSync(new URL("../components/phone-input.tsx", import.meta.url), "utf8");
   assert.match(shared, /name=\{`\$\{name\}Country`\}/);
   assert.match(shared, /<input type="hidden" name=\{name\} value=\{submittedValue\}/);
-  assert.match(shared, /invalidLegacy \? PHONE_ERROR/);
+  assert.match(shared, /parsed.invalid \? PHONE_ERROR/);
 });
 
 test("optional phones preserve null while present values retain their leading plus", () => {
@@ -461,7 +461,7 @@ test("optional phones preserve null while present values retain their leading pl
   assert.equal(driverMutationFromForm(form, "AGENCY").phone, "+14155552671");
 });
 
-test("legacy phones are parsed only when an explicit international code is recoverable", () => {
+test("phone defaults are visible and legacy local numbers normalize to India", () => {
   const formatted = parsePhoneValue("+91 (98765) 43210");
   assert.equal(formatted.country.iso, "IN");
   assert.equal(formatted.nationalNumber, "9876543210");
@@ -470,8 +470,8 @@ test("legacy phones are parsed only when an explicit international code is recov
 
   const unqualified = parsePhoneValue("98765 43210");
   assert.equal(unqualified.country.iso, "IN");
-  assert.equal(unqualified.canonical, "98765 43210");
-  assert.equal(unqualified.invalidLegacy, true);
+  assert.equal(unqualified.canonical, "+919876543210");
+  assert.equal(unqualified.invalidLegacy, false);
 
   const malformed = parsePhoneValue("not-a-phone");
   assert.equal(malformed.canonical, "not-a-phone");
@@ -481,7 +481,7 @@ test("legacy phones are parsed only when an explicit international code is recov
 test("WhatsApp feedback message preserves exact link and line breaks and URL uses digits-only phone", () => {
   const link = "https://feedback.example/feedback?token=opaque.value&next=%2Fquestions";
   const message = buildWhatsAppFeedbackMessage("Asha Singh", link);
-  assert.equal(message, `Hi Asha Singh,\n\nThank you for travelling with Eastern Risen. We would appreciate your feedback about your recent trip.\n\nShare your feedback here: ${link}`);
+  assert.equal(message, `Hi Asha Singh,\n\nThank you for travelling with us. We would appreciate your feedback about your recent trip.\n\nShare your feedback here: ${link}`);
   const url = new URL(buildWhatsAppShareUrl("+91 98765-43210", message));
   assert.equal(url.origin + url.pathname, "https://wa.me/919876543210");
   assert.equal(url.searchParams.get("text"), message);
@@ -881,7 +881,7 @@ test("settings, review, analytics, performance, and completion sources preserve 
   assert.match(analytics,/negativeFeedbackThreshold===null/);
   assert.match(analytics,/accessible data table/);
   for(const forbidden of ["data.respondentName","data.bookingReference","data.comments","data.reviewHistory","data.feedbackId"]) assert.doesNotMatch(performance,new RegExp(forbidden.replace(".","\\.")));
-  assert.match(passenger,/completion\?\.thankYouMessage/);
+  assert.match(passenger,/Your feedback helps improve future journeys\./);
   assert.match(passenger,/context\.completion\.timezone/);
 });
 
@@ -967,4 +967,35 @@ test("direct reset identifies its target, is unavailable when archived, and make
   assert.doesNotMatch(adminSource, /Email sent|queued for delivery|reset instructions/i);
   assert.equal(existsSync(new URL("../app/(auth)/driver/forgot-password/page.tsx", import.meta.url)), false);
   assert.equal(existsSync(new URL("../app/(auth)/reset-password/page.tsx", import.meta.url)), false);
+});
+
+test("phone input recognizes bare and explicit codes without duplicating them", () => {
+  for (const value of ["9876543210", "98765 43210", "919876543210", "+91 98765 43210", "0091 (98765) 43210"]) {
+    const parsed = parsePhoneInput(value);
+    assert.equal(parsed.callingCode, "+91");
+    assert.equal(parsed.nationalNumber, "9876543210");
+    assert.equal(parsed.canonical, "+919876543210");
+    assert.equal(parsed.invalid, false);
+  }
+  for (const [input, code, local] of [
+    ["14155552671", "+1", "4155552671"],
+    ["442079460958", "+44", "2079460958"],
+    ["971501234567", "+971", "501234567"],
+    ["3811234567890", "+381", "1234567890"],
+    ["+33123456789", "+33", "123456789"],
+  ]) {
+    const parsed = parsePhoneInput(input);
+    assert.equal(parsed.callingCode, code);
+    assert.equal(parsed.nationalNumber, local);
+    assert.equal(parsed.canonical, `${code}${local}`);
+    assert.equal(parsed.invalid, false);
+  }
+});
+test("phone input respects an edited country code and never repairs invalid characters", () => {
+  assert.equal(parsePhoneInput("2079460958", "+44").canonical, "+442079460958");
+  assert.equal(parsePhoneInput("4155552671", "1").canonical, "+14155552671");
+  assert.equal(parsePhoneInput("9123456789").canonical, "+919123456789");
+  for (const raw of ["", "   "]) assert.equal(parsePhoneInput(raw).canonical, "");
+  for (const raw of ["+91x9876543210", "91+9876543210", "abc", "1234567890123456"]) assert.equal(parsePhoneInput(raw).invalid, true);
+  assert.equal(parsePhoneInput("9876543210", "+").invalid, true);
 });

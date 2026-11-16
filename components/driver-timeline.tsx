@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { ApiError, getPaginated } from '@/lib/api';
 import type { CreateTimelineEvent, DriverBookingContext, EventLocation, TimelineEvent, TimelineEventType } from '@/lib/timeline-types';
 import { clearDriverToken, consumeDriverToken, rememberedDriverScope, rememberDriverScope, driverTimelineAccess, type TimelineAccess } from '@/lib/timeline-api';
-import { accessScope, actionsFor, nextMilestone, eventLabels, progressLabels, timelineError, validateEntry, validLocation } from '@/lib/timeline-rules';
+import { accessScope, actionsFor, eventLabels, progressLabels, timelineError, validateEntry, validLocation } from '@/lib/timeline-rules';
 import { exportEntry, newQueueItem, removeQueuedPhoto, retryTimelineItem, syncTimelineQueue, timelineStore, withTimelineLock, type TimelineQueueItem } from '@/lib/timeline-queue';
 import { formatDateTime, formatTripRange } from '@/lib/timeline-time';
 import { Modal } from './modal';
@@ -62,8 +62,7 @@ function DriverBooking({ access, bookingId, initialScope = '' }: {
     initialScope?: string;
 }) {
     const [context, setContext] = useState<DriverBookingContext | null>(null), [selected, setSelected] = useState(''), [composer, setComposer] = useState<CreateTimelineEvent | null>(null), [error, setError] = useState(''), [unavailable, setUnavailable] = useState(false), [items, setItems] = useState<TimelineQueueItem[]>([]), [scope, setScope] = useState(initialScope), [refreshKey, setRefreshKey] = useState(0), [busy, setBusy] = useState(false), [offline, setOffline] = useState(false), [cleared, setCleared] = useState(false), [updated, setUpdated] = useState(''), [now, setNow] = useState(0), [lastSavedId, setLastSavedId] = useState('');
-    const [history, setHistory] = useState<{events: TimelineEvent[]; available: boolean}>({events: [], available: false});
-    const receiveHistory = useCallback((events: TimelineEvent[], available: boolean) => setHistory({events, available}), []);
+    const [needsSignIn, setNeedsSignIn] = useState(false);
     const contextRef = useRef<DriverBookingContext | null>(null), syncing = useRef(false), saving = useRef(false), composerRef = useRef<CreateTimelineEvent | null>(null);
     useEffect(() => { composerRef.current = composer; }, [composer]);
     const refreshQueue = useCallback(async () => { try {
@@ -92,6 +91,7 @@ function DriverBooking({ access, bookingId, initialScope = '' }: {
                 rememberDriverScope(identity);
             setSelected(previous => next.trips.some(t => t.id === previous) ? previous : next.trips.find(t => !['COMPLETED', 'CANCELLED'].includes(t.operationalStatus))?.id || next.trips[0]?.id || '');
             setUnavailable(false);
+            setNeedsSignIn(false);
             setUpdated(new Date().toISOString());
             setNow(Date.now());
             return next;
@@ -99,6 +99,7 @@ function DriverBooking({ access, bookingId, initialScope = '' }: {
         catch (e) {
             setError(timelineError(e));
             if (e instanceof ApiError && !e.retryable) {
+                setNeedsSignIn(e.status === 401);
                 setUnavailable(true);
                 setContext(null);
                 contextRef.current = null;
@@ -117,6 +118,7 @@ function DriverBooking({ access, bookingId, initialScope = '' }: {
     catch (e) {
         setError(timelineError(e));
         if (e instanceof ApiError && !e.retryable) {
+            setNeedsSignIn(e.status === 401);
             setUnavailable(true);
             setContext(null);
             contextRef.current = null;
@@ -140,8 +142,7 @@ function DriverBooking({ access, bookingId, initialScope = '' }: {
     const pending = items.filter(i => i.state !== 'Sent');
     const latestSaved = items.find(i => i.id === lastSavedId);
     const allowed = trip ? actionsFor(trip.operationalStatus) : [];
-    const primary = trip && history.available ? nextMilestone(trip, history.events, items.filter(i => i.state !== 'Needs attention').map(i => i.draft)) : null;
-    const milestones = allowed.filter(type => type !== primary && type !== 'NOTE' && type !== 'DELAY');
+    const completionPending = !!trip && pending.some(i => i.draft.tripId === trip.id && i.draft.assignmentVersion === trip.assignmentVersion && i.draft.type === 'TRIP_COMPLETED');
     const reportingClosed = !!context && Date.parse(context.reportingClosesAt) < now;
     function open(type: TimelineEventType, original?: TimelineEvent) { if (!trip)
         return; const now = new Date().toISOString(); setComposer({ clientEventId: crypto.randomUUID(), tripId: trip.id, assignmentVersion: trip.assignmentVersion, type, occurredAt: now, recordedAt: now, submissionMode: offline ? 'OFFLINE_SYNC' : 'ONLINE', ...(original ? { tripId: original.tripId, assignmentVersion: original.assignmentVersion, correctsEventId: original.id } : {}) }); }
@@ -181,19 +182,16 @@ function DriverBooking({ access, bookingId, initialScope = '' }: {
         {offline && <p className="alert" role="status">You’re offline. Save updates here and keep this page open to send them when connected.</p>}
         {error && <p className="alert" role="alert">{error}</p>}
         {latestSaved && <p className={`alert ${latestSaved.state === 'Sent' ? 'timeline-success' : ''}`} role="status">{latestSaved.state === 'Sent' ? 'Update sent.' : latestSaved.state === 'Sending' ? 'Sending your update…' : latestSaved.state === 'Needs attention' || latestSaved.state === 'Upload failed' ? 'Update saved on this device. Review it below to finish sending.' : 'Update saved on this device. It will send when connected while this page is open.'}</p>}
-        {unavailable ? <section className="card card-pad"><h2>Access unavailable</h2><p>Ask your admin for current access. Unsent work is retained here.</p>{access.method === 'LOGIN' && <Link href="/driver/login">Sign in again</Link>}</section> : !context ? <p aria-live="polite">Loading booking…</p> : <>
-            {context.trips.length > 1 && <div className="field"><label htmlFor="current-trip">Trip to update</label><select className="select" id="current-trip" value={selected} onChange={e => { setSelected(e.target.value); setComposer(null); }}>{context.trips.map(t => <option key={t.id} value={t.id}>{t.pickupLocation} → {t.destination} · {formatDateTime(t.scheduledAt)} · {progressLabels[t.operationalStatus]}</option>)}</select></div>}
+        {unavailable ? <section className="card card-pad"><h2>{needsSignIn && access.method === 'LOGIN' ? "Sign in to continue" : "Access unavailable"}</h2><p>{needsSignIn && access.method === 'LOGIN' ? "Your session has ended. Sign in again to reopen this booking." : "Ask your admin to check booking access and the reporting period, then reload this booking."} Unsent work is retained on this device.</p><div className="trip-actions">{needsSignIn && access.method === 'LOGIN' ? <Link className="button" href="/driver/login">Sign in again</Link> : <button className="button" disabled={busy || offline} onClick={() => void reload()}>Check access again</button>}{access.method === 'LOGIN' && <Link className="button button-secondary" href="/driver/bookings">Back to trip updates</Link>}</div></section> : !context ? <p aria-live="polite">Loading booking…</p> : <>
+            {context.trips.length > 1 && <div className="field"><label htmlFor="current-trip">Assignment to update</label><select className="select" id="current-trip" value={selected} onChange={e => { setSelected(e.target.value); setComposer(null); }}>{context.trips.map(t => <option key={t.id} value={t.id}>{t.pickupLocation} → {t.destination} · {formatDateTime(t.scheduledAt)} · {progressLabels[t.operationalStatus]}</option>)}</select></div>}
             {!trip ? <p>No currently authorised trips.</p> : <article className="card card-pad driver-current-trip">
                 <div className="driver-trip-heading"><h2>{trip.pickupLocation} → {trip.destination}</h2><span className="status">{progressLabels[trip.operationalStatus]}</span></div>
                 <p>{formatTripRange(trip.scheduledAt, trip.scheduledEndAt)}</p><p className="timeline-meta">{trip.vehicle.displayName} · {trip.vehicle.registrationNumber}</p>
                 {reportingClosed ? <p className="alert">Reporting has closed. Ask your admin to extend access.</p> : <>
-                    {primary && <p className="field-label driver-next-label">Next step</p>}{primary && <button className="button driver-primary-action" disabled={busy} onClick={() => open(primary)}>{eventLabels[primary]}</button>}
-                    {!!milestones.length && <div className="driver-milestones"><p className="field-label">Other milestones</p><div className="timeline-actions">{milestones.map(type => <button className="button button-secondary" disabled={busy} key={type} onClick={() => open(type)}>{eventLabels[type]}</button>)}</div></div>}
-                    <div className="driver-extra-updates"><p className="field-label">Add to your update (optional)</p><div className="timeline-actions">
-                        <button className="button button-secondary" disabled={busy} onClick={() => open('NOTE')}>Add note</button>
-                        <button className="button button-secondary" disabled={busy} onClick={() => open('NOTE')}>Add photos</button>
-                        {allowed.includes('DELAY') && <button className="button button-secondary" disabled={busy} onClick={() => open('DELAY')}>Report delay</button>}
-                    </div></div>
+                    <p>{['COMPLETED', 'CANCELLED'].includes(trip.operationalStatus) ? 'This assignment is closed. You can still add notes and photos during the reporting period.' : 'Post updates for every journey and stop covered by this assignment. You can use the same update type again.'}</p>
+                    <button className="button driver-primary-action" disabled={busy || completionPending} onClick={() => open('NOTE')}>Post update</button>
+                    {completionPending && <p role="status">Final completion is waiting to send. Resolve it in saved updates before posting more journey updates.</p>}
+                    {allowed.includes('TRIP_COMPLETED') && <details className="driver-disclosure"><summary>Finish assignment</summary><p>Use this only when all journeys covered by the selected assignment are finished. For an individual journey, post a passenger drop-off update.</p><button className="button button-secondary" disabled={busy || completionPending} onClick={() => open('TRIP_COMPLETED')}>Finish all assigned journeys</button></details>}
                 </>}
             </article>}
         </>}
@@ -214,7 +212,7 @@ function DriverBooking({ access, bookingId, initialScope = '' }: {
                 </article>)}
             </details>
         </section>}
-        {context && <details className="driver-disclosure card card-pad driver-history"><summary>Trip history</summary><TimelineFeed key={scope} loadAll onEvents={receiveHistory} load={events} photo={photo} refreshKey={refreshKey} routes={Object.fromEntries(context.trips.map(t => [t.id, `${t.pickupLocation} → ${t.destination}`]))} onCorrect={e => { if (context.trips.some(t => t.id === e.tripId && t.assignmentVersion === e.assignmentVersion)) open('CORRECTION', e); else setError('This update belongs to an earlier assignment and cannot be corrected here.'); }}/></details>}
+        {context && <section className="card card-pad driver-history" aria-label="Update history"><TimelineFeed key={scope} loadAll groupByDay load={events} photo={photo} refreshKey={refreshKey} routes={Object.fromEntries(context.trips.map(t => [t.id, `${t.pickupLocation} → ${t.destination}`]))} onCorrect={e => { if (context.trips.some(t => t.id === e.tripId && t.assignmentVersion === e.assignmentVersion)) open('CORRECTION', e); else setError('This update belongs to an earlier assignment and cannot be corrected here.'); }}/></section>}
         <details className="driver-disclosure driver-page-options"><summary>Booking details &amp; options</summary>
             {context && <><p>Reporting closes {formatDateTime(context.reportingClosesAt)}{context.expiresAt && ` · Link expires ${formatDateTime(context.expiresAt)}`}</p>{trip && <p>Actual start: {trip.startedAt ? formatDateTime(trip.startedAt) : 'Not recorded'} · Actual completion: {trip.completedAt ? formatDateTime(trip.completedAt) : 'Not recorded'}</p>}</>}
             <p className="timeline-meta">{updated && `Booking refreshed ${formatDateTime(updated)}`}</p><div className="timeline-actions"><button className="button button-secondary" onClick={() => void reload()} disabled={busy}>Reload booking</button>
@@ -232,6 +230,8 @@ function Composer({ draft, startsAt, route, busy, onSave, onClose, initialFiles 
     onSave: (draft: CreateTimelineEvent, files: Blob[]) => Promise<void>;
     onClose: () => void;
 }) {
+    const [eventType, setEventType] = useState<TimelineEventType>(draft.type);
+    const [confirmed, setConfirmed] = useState(false);
     const [note, setNote] = useState(draft.note || ''), [reason, setReason] = useState(draft.correctionReason || ''), [files, setFiles] = useState<Blob[]>(initialFiles), [location, setLocation] = useState<EventLocation | undefined>(draft.location), [recordedAt, setRecordedAt] = useState(draft.recordedAt), [error, setError] = useState(''), [locBusy, setLocBusy] = useState(false), [locMessage, setLocMessage] = useState('');
     async function capture() { setLocBusy(true); setLocMessage(''); try {
         if (!navigator.geolocation)
@@ -252,8 +252,8 @@ function Composer({ draft, startsAt, route, busy, onSave, onClose, initialFiles 
     finally {
         setLocBusy(false);
     } }
-    async function submit(e: FormEvent) { e.preventDefault(); if (busy || locBusy)
-        return; const event = { ...draft, recordedAt, note: note.trim() || undefined, location, ...(draft.type === 'CORRECTION' ? { correctionReason: reason.trim() } : {}) }; const issue = validateEntry(event, startsAt, files.length); if (issue) {
+    async function submit(e: FormEvent) { e.preventDefault(); if (busy || locBusy || (eventType === 'TRIP_COMPLETED' && !confirmed))
+        return; const event = { ...draft, type: eventType, recordedAt, note: note.trim() || undefined, location, ...(eventType === 'CORRECTION' ? { correctionReason: reason.trim() } : {}) }; const issue = validateEntry(event, startsAt, files.length); if (issue) {
         setError(issue);
         return;
     } try {
@@ -262,12 +262,14 @@ function Composer({ draft, startsAt, route, busy, onSave, onClose, initialFiles 
     catch (e) {
         setError(timelineError(e));
     } }
-    const needsContent = ['NOTE', 'DELAY', 'CORRECTION'].includes(draft.type);
-    const title = draft.type === 'NOTE' ? 'Add note or photos' : draft.type === 'DELAY' ? 'Report delay' : eventLabels[draft.type];
-    const noteField = <div className="field"><label htmlFor="event-note">{draft.type === 'CORRECTION' ? 'Corrected note (optional)' : 'Note (optional)'}</label><textarea className="textarea" id="event-note" maxLength={4000} value={note} onChange={e => setNote(e.target.value)}/></div>;
-    return <Modal onDismiss={onClose}><form className="dialog" role="dialog" aria-modal="true" aria-labelledby="composer-title" onSubmit={submit}><h2 id="composer-title" tabIndex={-1}>{title}</h2><p>{route?.pickupLocation} → {route?.destination}</p><p>{formatDateTime(draft.occurredAt)}</p>{draft.type === 'TRIP_COMPLETED' ? <p>Confirm this trip is complete.</p> : !needsContent && <p>Confirm this milestone for the selected trip.</p>}{draft.type === 'CORRECTION' && <div className="field"><label htmlFor="correction-reason">Why are you correcting this update?</label><textarea className="textarea" id="correction-reason" maxLength={1000} required value={reason} onChange={e => setReason(e.target.value)}/></div>}{noteField}<div className="composer-details"><div className="field"><label htmlFor="event-photos">Photos (optional)</label><p className="timeline-meta" id="photo-help">Private · up to 10 JPEG, PNG or WebP photos, 10 MB each.</p><input aria-describedby="photo-help" className="input" id="event-photos" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={e => { const selected = Array.from(e.target.files || []); if (selected.length > 10 || selected.some(f => !['image/jpeg', 'image/png', 'image/webp'].includes(f.type) || f.size > 10 * 1024 * 1024 || f.size === 0)) {
+    const needsContent = ['NOTE', 'DELAY', 'CORRECTION'].includes(eventType);
+    const finalAction = eventType === 'TRIP_COMPLETED' || eventType === 'CORRECTION';
+    const updateTypes = actionsFor(route?.operationalStatus || 'SCHEDULED').filter(type => type !== 'TRIP_COMPLETED');
+    const title = finalAction ? eventLabels[eventType] : 'Post update';
+    const noteField = <div className="field"><label htmlFor="event-note">{eventType === 'CORRECTION' ? 'Corrected note (optional)' : 'Note (optional)'}</label><textarea className="textarea" id="event-note" maxLength={4000} placeholder="e.g. Hotel to airport — passengers dropped off" value={note} onChange={e => setNote(e.target.value)}/></div>;
+    return <Modal onDismiss={onClose}><form className="dialog" role="dialog" aria-modal="true" aria-labelledby="composer-title" onSubmit={submit}><h2 id="composer-title" tabIndex={-1}>{title}</h2><p>{route?.pickupLocation} → {route?.destination}</p><p>{formatDateTime(draft.occurredAt)}</p>{!finalAction && <div className="field"><label htmlFor="update-type">What happened?</label><select className="select" id="update-type" value={eventType} onChange={e => setEventType(e.target.value as TimelineEventType)}>{updateTypes.map(type => <option key={type} value={type}>{eventLabels[type]}</option>)}</select></div>}{eventType === 'TRIP_COMPLETED' ? <div><p>This finishes all journeys covered by this assignment. Later journey updates will require an admin to reopen it. Other assignments in this booking stay separate.</p><label><input type="checkbox" required checked={confirmed} onChange={e => setConfirmed(e.target.checked)}/> All journeys for this assignment are finished</label></div> : !needsContent && <p>Record this update for the selected assignment. Add a note to describe the journey or stop.</p>}{eventType === 'CORRECTION' && <div className="field"><label htmlFor="correction-reason">Why are you correcting this update?</label><textarea className="textarea" id="correction-reason" maxLength={1000} required value={reason} onChange={e => setReason(e.target.value)}/></div>}{noteField}<div className="composer-details"><div className="field"><label htmlFor="event-photos">Photos (optional)</label><p className="timeline-meta" id="photo-help">Private · up to 10 JPEG, PNG or WebP photos, 10 MB each.</p><input aria-describedby="photo-help" className="input" id="event-photos" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={e => { const selected = Array.from(e.target.files || []); if (selected.length > 10 || selected.some(f => !['image/jpeg', 'image/png', 'image/webp'].includes(f.type) || f.size > 10 * 1024 * 1024 || f.size === 0)) {
         setError('Choose up to 10 JPEG, PNG or WebP photos, each between 1 byte and 10 MB.');
         e.target.value = '';
         return;
-    } setFiles(selected); setError(''); }}/></div><ul>{files.map((f, i) => <li key={i}>{(f as File).name || `Photo ${i + 1}`} <button type="button" onClick={() => setFiles(old => old.filter((_, n) => n !== i))}>Remove</button></li>)}</ul><details className="driver-disclosure"><summary>Location (optional)</summary><div className="timeline-actions"><button type="button" className="button button-secondary" disabled={locBusy || busy} onClick={() => void capture()}>Include my location</button>{location && <button type="button" className="button button-secondary" onClick={() => { setLocation(undefined); setLocMessage('Location omitted.'); }}>Remove location</button>}</div><p role="status">{locBusy ? 'Capturing location…' : locMessage}</p></details></div>{error && <p className="alert" role="alert">{error}</p>}<div className="dialog-actions"><button type="button" className="button button-secondary" disabled={busy} onClick={onClose}>Cancel</button><button className="button" disabled={busy || locBusy}>{busy ? 'Saving…' : draft.type === 'TRIP_COMPLETED' ? 'Confirm completion' : draft.type === 'TRIP_STARTED' ? 'Confirm start' : needsContent ? 'Save update' : 'Confirm update'}</button></div></form></Modal>;
+    } setFiles(selected); setError(''); }}/></div><ul>{files.map((f, i) => <li key={i}>{(f as File).name || `Photo ${i + 1}`} <button type="button" onClick={() => setFiles(old => old.filter((_, n) => n !== i))}>Remove</button></li>)}</ul><details className="driver-disclosure"><summary>Location (optional)</summary><div className="timeline-actions"><button type="button" className="button button-secondary" disabled={locBusy || busy} onClick={() => void capture()}>Include my location</button>{location && <button type="button" className="button button-secondary" onClick={() => { setLocation(undefined); setLocMessage('Location omitted.'); }}>Remove location</button>}</div><p role="status">{locBusy ? 'Capturing location…' : locMessage}</p></details></div>{error && <p className="alert" role="alert">{error}</p>}<div className="dialog-actions"><button type="button" className="button button-secondary" disabled={busy} onClick={onClose}>Cancel</button><button className="button" disabled={busy || locBusy || (eventType === 'TRIP_COMPLETED' && !confirmed)}>{busy ? 'Saving…' : eventType === 'TRIP_COMPLETED' ? 'Finish assignment' : 'Save update'}</button></div></form></Modal>;
 }

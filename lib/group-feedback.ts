@@ -1,3 +1,4 @@
+import { parsePhoneInput } from "./phone.ts";
 import { ApiError, apiRequest } from "./api.ts";
 import type { FeedbackLink, PassengerContext, SubmitFeedbackRequest } from "./contracts.ts";
 import { feedbackLinkPath, type FeedbackLinkAudience } from "./feedback-link.ts";
@@ -15,8 +16,7 @@ export async function closeGroupFeedback(id:string) {
   await apiRequest<void>(`/api/v1/admin/engagements/${encodeURIComponent(id)}/close-feedback`,{method:"POST"});
 }
 export function normalizeRespondentPhone(value:string): string {
-  const raw=value.trim().replace(/[\s().-]/g,"");
-  return raw.startsWith("00") ? `+${raw.slice(2)}` : raw;
+  return parsePhoneInput(value).canonical;
 }
 
 // One response owns one immutable retry envelope, including timestamps and photo.
