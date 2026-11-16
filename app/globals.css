@@ -408,9 +408,6 @@ a { color: inherit; text-decoration: none; }
   .passenger-actions .button { min-width:0; white-space:normal; }
 }
 
-.passenger-optional-details { margin:1.25rem 0; border-block:1px solid var(--border); }
-.passenger-optional-details > summary { min-height:48px; padding:.7rem 0; cursor:pointer; font-weight:700; }
-.passenger-optional-details[open] > summary { margin-bottom:.6rem; }
 
 .feedback-branding-header { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; min-width: 0; overflow-wrap: anywhere; }
 .feedback-branding-logo { max-width: 9rem; max-height: 3rem; width: auto; height: auto; object-fit: contain; }

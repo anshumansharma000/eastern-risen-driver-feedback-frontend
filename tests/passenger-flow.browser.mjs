@@ -25,7 +25,7 @@ async function focused(id){
 }
 const next=()=>page.getByRole('button',{name:'Continue to questions →',exact:true}).click();
 const review=()=>page.getByRole('button',{name:'Review feedback →',exact:true}).click();
-async function send(){await page.getByRole('button',{name:'Add optional photo →',exact:true}).click();await page.getByRole('button',{name:'Submit feedback without photo',exact:true}).click()}
+async function send(){await page.getByRole('button',{name:'Continue to photo →',exact:true}).click();await page.getByRole('button',{name:'Submit feedback without photo',exact:true}).click()}
 try{
  await page.goto(base+'/feedback?token=fixture');
  await page.getByLabel('Mobile number',{exact:true}).waitFor();
@@ -33,15 +33,18 @@ try{
  assert.equal(await page.locator('.brand').count(),0);
  assert.doesNotMatch(await page.locator('body').innerText(),/Eastern Risen/);
  assert.match(await page.locator('link[rel=icon]').last().getAttribute('href'),/feedback-icon\.svg$/);
- assert.equal(await page.getByLabel('Name (optional)',{exact:true}).getAttribute('required'),null);
- assert.equal(await page.getByLabel('Email address (optional)',{exact:true}).getAttribute('required'),null);
- assert.equal(await page.getByLabel('Booking reference (optional)',{exact:true}).inputValue(),'');
+ for (const label of ['Name', 'Email address', 'Booking reference']) {
+   const field = page.getByLabel(label, {exact:true});
+   assert.equal(await field.isVisible(), true);
+   assert.equal(await field.getAttribute('required'), null);
+ }
+ assert.equal(await page.getByLabel('Booking reference',{exact:true}).inputValue(),'');
  await next();await focused('respondentPhone-national');assert.equal(starts,0);
  await next();await focused('respondentPhone-national');
  await page.screenshot({path:'/tmp/passenger-feedback-validation.png'});
  await page.getByLabel('Mobile number',{exact:true}).fill('9876543210');await next();await focused('consent');assert.equal(starts,0);
- await page.getByRole('checkbox').check();await page.getByText('Add optional details',{exact:true}).click();await page.getByLabel('Email address (optional)',{exact:true}).fill('invalid');await page.getByText('Add optional details',{exact:true}).click();await next();await focused('email');assert.equal(starts,0);
- await page.getByLabel('Email address (optional)',{exact:true}).fill('');await next();
+ await page.getByRole('checkbox').check();await page.getByLabel('Email address',{exact:true}).fill('invalid');await next();await focused('email');assert.equal(starts,0);
+ await page.getByLabel('Email address',{exact:true}).fill('');await next();
  await page.getByRole('button',{name:'Next question →',exact:true}).click();await focused('question-comment');
  await page.getByRole('button',{name:'Next question →',exact:true}).click();await focused('question-comment');
  await page.getByLabel('Tell us about your journey.').fill('A comfortable journey.');await page.getByRole('button',{name:'Next question →',exact:true}).click();
