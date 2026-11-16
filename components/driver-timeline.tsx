@@ -1,7 +1,7 @@
 "use client";
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { ApiError, getPaginated } from '@/lib/api';
 import type { CreateTimelineEvent, DriverBookingContext, EventLocation, TimelineEvent, TimelineEventType } from '@/lib/timeline-types';
 import { clearDriverToken, consumeDriverToken, rememberedDriverScope, rememberDriverScope, driverTimelineAccess, type TimelineAccess } from '@/lib/timeline-api';
@@ -10,6 +10,10 @@ import { exportEntry, newQueueItem, removeQueuedPhoto, retryTimelineItem, syncTi
 import { formatDateTime, formatTripRange } from '@/lib/timeline-time';
 import { Modal } from './modal';
 import { TimelineFeed, useVisibleRefresh } from './timeline-feed';
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const PHOTO_LIMIT = 10;
+const PHOTO_SIZE_LIMIT = 10 * 1024 * 1024;
+
 interface AssignedBooking {
     id: string;
     bookingReference: string;
@@ -233,6 +237,27 @@ function Composer({ draft, startsAt, route, busy, onSave, onClose, initialFiles 
     const [eventType, setEventType] = useState<TimelineEventType>(draft.type);
     const [confirmed, setConfirmed] = useState(false);
     const [note, setNote] = useState(draft.note || ''), [reason, setReason] = useState(draft.correctionReason || ''), [files, setFiles] = useState<Blob[]>(initialFiles), [location, setLocation] = useState<EventLocation | undefined>(draft.location), [recordedAt, setRecordedAt] = useState(draft.recordedAt), [error, setError] = useState(''), [locBusy, setLocBusy] = useState(false), [locMessage, setLocMessage] = useState('');
+    const cameraInput = useRef<HTMLInputElement>(null);
+    const photoLimitReached = files.length >= PHOTO_LIMIT;
+
+    function addPhotos(event: ChangeEvent<HTMLInputElement>) {
+        const input = event.currentTarget;
+        const selected = Array.from(input.files || []);
+        input.value = '';
+        if (!selected.length || busy) return;
+
+        if (files.length + selected.length > PHOTO_LIMIT) {
+            setError(`You can attach up to ${PHOTO_LIMIT} photos per update. Remove a photo or choose fewer photos.`);
+            return;
+        }
+        if (selected.some(file => !PHOTO_TYPES.includes(file.type) || file.size === 0 || file.size > PHOTO_SIZE_LIMIT)) {
+            setError('Choose JPEG, PNG or WebP photos, each between 1 byte and 10 MB.');
+            return;
+        }
+        setFiles(previous => [...previous, ...selected]);
+        setError('');
+    }
+
     async function capture() { setLocBusy(true); setLocMessage(''); try {
         if (!navigator.geolocation)
             throw new Error('Location is unavailable. You can still report this update.');
@@ -267,9 +292,19 @@ function Composer({ draft, startsAt, route, busy, onSave, onClose, initialFiles 
     const updateTypes = actionsFor(route?.operationalStatus || 'SCHEDULED').filter(type => type !== 'TRIP_COMPLETED');
     const title = finalAction ? eventLabels[eventType] : 'Post update';
     const noteField = <div className="field"><label htmlFor="event-note">{eventType === 'CORRECTION' ? 'Corrected note (optional)' : 'Note (optional)'}</label><textarea className="textarea" id="event-note" maxLength={4000} placeholder="e.g. Hotel to airport — passengers dropped off" value={note} onChange={e => setNote(e.target.value)}/></div>;
-    return <Modal onDismiss={onClose}><form className="dialog" role="dialog" aria-modal="true" aria-labelledby="composer-title" onSubmit={submit}><h2 id="composer-title" tabIndex={-1}>{title}</h2><p>{route?.pickupLocation} → {route?.destination}</p><p>{formatDateTime(draft.occurredAt)}</p>{!finalAction && <div className="field"><label htmlFor="update-type">What happened?</label><select className="select" id="update-type" value={eventType} onChange={e => setEventType(e.target.value as TimelineEventType)}>{updateTypes.map(type => <option key={type} value={type}>{eventLabels[type]}</option>)}</select></div>}{eventType === 'TRIP_COMPLETED' ? <div><p>This finishes all journeys covered by this assignment. Later journey updates will require an admin to reopen it. Other assignments in this booking stay separate.</p><label><input type="checkbox" required checked={confirmed} onChange={e => setConfirmed(e.target.checked)}/> All journeys for this assignment are finished</label></div> : !needsContent && <p>Record this update for the selected assignment. Add a note to describe the journey or stop.</p>}{eventType === 'CORRECTION' && <div className="field"><label htmlFor="correction-reason">Why are you correcting this update?</label><textarea className="textarea" id="correction-reason" maxLength={1000} required value={reason} onChange={e => setReason(e.target.value)}/></div>}{noteField}<div className="composer-details"><div className="field"><label htmlFor="event-photos">Photos (optional)</label><p className="timeline-meta" id="photo-help">Private · up to 10 JPEG, PNG or WebP photos, 10 MB each.</p><input aria-describedby="photo-help" className="input" id="event-photos" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={e => { const selected = Array.from(e.target.files || []); if (selected.length > 10 || selected.some(f => !['image/jpeg', 'image/png', 'image/webp'].includes(f.type) || f.size > 10 * 1024 * 1024 || f.size === 0)) {
-        setError('Choose up to 10 JPEG, PNG or WebP photos, each between 1 byte and 10 MB.');
-        e.target.value = '';
-        return;
-    } setFiles(selected); setError(''); }}/></div><ul>{files.map((f, i) => <li key={i}>{(f as File).name || `Photo ${i + 1}`} <button type="button" onClick={() => setFiles(old => old.filter((_, n) => n !== i))}>Remove</button></li>)}</ul><details className="driver-disclosure"><summary>Location (optional)</summary><div className="timeline-actions"><button type="button" className="button button-secondary" disabled={locBusy || busy} onClick={() => void capture()}>Include my location</button>{location && <button type="button" className="button button-secondary" onClick={() => { setLocation(undefined); setLocMessage('Location omitted.'); }}>Remove location</button>}</div><p role="status">{locBusy ? 'Capturing location…' : locMessage}</p></details></div>{error && <p className="alert" role="alert">{error}</p>}<div className="dialog-actions"><button type="button" className="button button-secondary" disabled={busy} onClick={onClose}>Cancel</button><button className="button" disabled={busy || locBusy || (eventType === 'TRIP_COMPLETED' && !confirmed)}>{busy ? 'Saving…' : eventType === 'TRIP_COMPLETED' ? 'Finish assignment' : 'Save update'}</button></div></form></Modal>;
+    return <Modal onDismiss={onClose}><form className="dialog" role="dialog" aria-modal="true" aria-labelledby="composer-title" onSubmit={submit}><h2 id="composer-title" tabIndex={-1}>{title}</h2><p>{route?.pickupLocation} → {route?.destination}</p><p>{formatDateTime(draft.occurredAt)}</p>{!finalAction && <div className="field"><label htmlFor="update-type">What happened?</label><select className="select" id="update-type" value={eventType} onChange={e => setEventType(e.target.value as TimelineEventType)}>{updateTypes.map(type => <option key={type} value={type}>{eventLabels[type]}</option>)}</select></div>}{eventType === 'TRIP_COMPLETED' ? <div><p>This finishes all journeys covered by this assignment. Later journey updates will require an admin to reopen it. Other assignments in this booking stay separate.</p><label><input type="checkbox" required checked={confirmed} onChange={e => setConfirmed(e.target.checked)}/> All journeys for this assignment are finished</label></div> : !needsContent && <p>Record this update for the selected assignment. Add a note to describe the journey or stop.</p>}{eventType === 'CORRECTION' && <div className="field"><label htmlFor="correction-reason">Why are you correcting this update?</label><textarea className="textarea" id="correction-reason" maxLength={1000} required value={reason} onChange={e => setReason(e.target.value)}/></div>}{noteField}<div className="composer-details"><div className="field"><label htmlFor="event-photos">Photos (optional)</label><p className="timeline-meta" id="photo-help">Private · up to 10 JPEG, PNG or WebP photos, 10 MB each.</p><input
+        aria-describedby="photo-help"
+        className="input"
+        id="event-photos"
+        type="file"
+        multiple
+        accept={PHOTO_TYPES.join(',')}
+        disabled={busy || photoLimitReached}
+        onChange={addPhotos}
+    />
+    <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden disabled={busy || photoLimitReached} onChange={addPhotos}/>
+    <button type="button" className="button button-secondary" aria-describedby="photo-help" disabled={busy || photoLimitReached} onClick={() => cameraInput.current?.click()}>
+        Take photo
+    </button>
+    </div><ul>{files.map((f, i) => <li key={i}>{(f as File).name || `Photo ${i + 1}`} <button type="button" disabled={busy} onClick={() => setFiles(old => old.filter((_, n) => n !== i))}>Remove</button></li>)}</ul><details className="driver-disclosure"><summary>Location (optional)</summary><div className="timeline-actions"><button type="button" className="button button-secondary" disabled={locBusy || busy} onClick={() => void capture()}>Include my location</button>{location && <button type="button" className="button button-secondary" onClick={() => { setLocation(undefined); setLocMessage('Location omitted.'); }}>Remove location</button>}</div><p role="status">{locBusy ? 'Capturing location…' : locMessage}</p></details></div>{error && <p className="alert" role="alert">{error}</p>}<div className="dialog-actions"><button type="button" className="button button-secondary" disabled={busy} onClick={onClose}>Cancel</button><button className="button" disabled={busy || locBusy || (eventType === 'TRIP_COMPLETED' && !confirmed)}>{busy ? 'Saving…' : eventType === 'TRIP_COMPLETED' ? 'Finish assignment' : 'Save update'}</button></div></form></Modal>;
 }
