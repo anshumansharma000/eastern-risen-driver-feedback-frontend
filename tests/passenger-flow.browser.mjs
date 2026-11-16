@@ -33,12 +33,13 @@ try{
  assert.equal(await page.locator('.brand').count(),0);
  assert.doesNotMatch(await page.locator('body').innerText(),/Eastern Risen/);
  assert.match(await page.locator('link[rel=icon]').last().getAttribute('href'),/feedback-icon\.svg$/);
- for (const label of ['Name', 'Email address', 'Booking reference']) {
+ for (const label of ['Name', 'Email address']) {
    const field = page.getByLabel(label, {exact:true});
    assert.equal(await field.isVisible(), true);
    assert.equal(await field.getAttribute('required'), null);
  }
- assert.equal(await page.getByLabel('Booking reference',{exact:true}).inputValue(),'');
+ assert.equal(await page.getByLabel('Booking reference',{exact:true}).count(),0);
+ assert.equal(await page.getByText('Journey details · BOOK',{exact:true}).isVisible(),true);
  await next();await focused('respondentPhone-national');assert.equal(starts,0);
  await next();await focused('respondentPhone-national');
  await page.screenshot({path:'/tmp/passenger-feedback-validation.png'});
